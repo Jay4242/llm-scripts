@@ -28,3 +28,12 @@ The pygame screen does not currently display the text correctly.
 ### llm-conv-file-memory.py
 
 My attempt at a memory implementation where you load a memory text file and ask the bot if it wants to update the text file.
+
+
+### llm-plex.bash
+
+Accesses a local Plex server to make suggestions, including against current RottenTomatoes suggestions.
+
+Screenshot of output:
+
+![llm-plex.bash screenshot](https://github.com/Jay4242/llm-scripts/blob/cb64a0b605a5a3f9255b618d2dd16aed32836b0b/screenshots/llm-plex.png)
