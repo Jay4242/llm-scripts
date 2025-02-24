@@ -29,8 +29,12 @@ genre=$(for genre in "${genres[@]}" ; do
 echo "${genre}" | grep -i "${genrec}" | cut -d',' -f1
 done)
 
+genre_name=$(for genre in "${genres[@]}" ; do
+echo "${genre}" | grep -i "${genrec}" | cut -d',' -f2
+done)
+
 #Output the Genre Movie Suggestion title.
-echo "------------${genre} Suggestion------------"
+echo "------------${genre_name} Suggestion------------"
 
 #Fetch the movies of that genre in the user's Plex.
 movies=$(curl -s "http://plex.lan/library/sections/1/genre/${genre}?X-Plex-Token=${api}")
