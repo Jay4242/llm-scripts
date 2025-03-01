@@ -1,29 +1,52 @@
 import requests
 import json
 import os
+import time
+from functools import wraps
 from dotenv import load_dotenv
 
 load_dotenv()
+
+def retry_request(max_retries=5, delay=5):
+    """
+    Decorator to retry a function that makes an API request.
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            retries = 0
+            while retries < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except requests.exceptions.RequestException as e:
+                    if e.response is not None and e.response.status_code == 500:
+                        print(f"Server Error (500) detected. Retrying in {delay} seconds...")
+                        retries += 1
+                        time.sleep(delay)
+                    else:
+                        raise e  # Re-raise exceptions that are not 500 errors
+            print(f"Max retries reached. Function {func.__name__} failed.")
+            return None  # Or raise an exception, depending on your needs
+        return wrapper
+    return decorator
 
 class TubeArchivistAPI:
     def __init__(self, base_url: str, api_token: str):
         self.base_url = base_url
         self.api_token = api_token
 
+    @retry_request()
     def get_latest_videos(self, page_size=12):
         """Retrieves the latest downloaded videos from the TubeArchivist API."""
-        endpoint = f"{self.base_url}/api/video/?page_size={page_size}"
+        endpoint = f"{self.base_url}/api/video/"
         headers = {"Authorization": f"Token {self.api_token}"}
 
-        try:
-            response = requests.get(endpoint, headers=headers)
-            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-            data = response.json()
-            return data
-        except requests.exceptions.RequestException as e:
-            print(f"API request failed: {e}")
-            return None
+        response = requests.get(endpoint, headers=headers)
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+        data = response.json()
+        return data
 
+    @retry_request()
     def get_channel_stats(self):
         """
         Retrieves channel stats from the TubeArchivist API.
@@ -31,15 +54,25 @@ class TubeArchivistAPI:
         endpoint = f"{self.base_url}/api/stats/channel/"
         headers = {"Authorization": f"Token {self.api_token}"}
 
-        try:
-            response = requests.get(endpoint, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            return data
-        except requests.exceptions.RequestException as e:
-            print(f"API request failed: {e}")
-            return None
+        response = requests.get(endpoint, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        return data
 
+    @retry_request()
+    def get_video_stats(self):
+        """
+        Retrieves video stats from the TubeArchivist API.
+        """
+        endpoint = f"{self.base_url}/api/stats/video/"
+        headers = {"Authorization": f"Token {self.api_token}"}
+
+        response = requests.get(endpoint, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        return data
+
+    @retry_request()
     def get_biggest_channels(self, order="doc_count"):
         """
         Retrieves the biggest channels stats from the TubeArchivist API.
@@ -47,14 +80,10 @@ class TubeArchivistAPI:
         endpoint = f"{self.base_url}/api/stats/biggestchannels/?order={order}"
         headers = {"Authorization": f"Token {self.api_token}"}
 
-        try:
-            response = requests.get(endpoint, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            return data
-        except requests.exceptions.RequestException as e:
-            print(f"API request failed: {e}")
-            return None
+        response = requests.get(endpoint, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        return data
 
     def format_videos(self, videos):
         """
@@ -64,6 +93,8 @@ class TubeArchivistAPI:
         for video in videos["data"]:
             formatted_video = {
                 "Title": video["title"],
+                "Video ID": video["youtube_id"],
+                "Description": video["description"],
                 "Channel": video["channel"]["channel_name"],
                 "Published": video["published"],
                 "Duration": video["player"]["duration_str"],
@@ -85,6 +116,54 @@ class TubeArchivistAPI:
         }
         return formatted_channel
 
+    @retry_request()
+    def get_watch_stats(self):
+        """
+        Retrieves watch stats from the TubeArchivist API.
+        """
+        endpoint = f"{self.base_url}/api/stats/watch/"
+        headers = {"Authorization": f"Token {self.api_token}"}
+
+        response = requests.get(endpoint, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        return data
+
+    @retry_request()
+    def get_all_tasks(self):
+        """Retrieves all tasks from the TubeArchivist API."""
+        endpoint = f"{self.base_url}/api/task-name/"
+        headers = {"Authorization": f"Token {self.api_token}"}
+
+        response = requests.get(endpoint, headers=headers)
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+        data = response.json()
+        return data
+
+    @retry_request()
+    def get_video(self, video_id: str):
+        """Retrieves a specific video's information from the TubeArchivist API."""
+        endpoint = f"{self.base_url}/api/video/{video_id}/"
+        headers = {"Authorization": f"Token {self.api_token}"}
+
+        response = requests.get(endpoint, headers=headers)
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+        data = response.json()
+        return data
+
+    def format_tasks(self, tasks):
+        """Formats the task data for more human-readable output."""
+        formatted_tasks = []
+        for task in tasks:
+            formatted_task = {
+                "Task Name": task["name"],
+                "Status": task["status"],
+                "Date Done": task["date_done"],
+                "Task ID": task["task_id"],
+            }
+            formatted_tasks.append(formatted_task)
+        return formatted_tasks
+
 def main():
     """
     Main function to interact with the TubeArchivist API.
@@ -99,18 +178,26 @@ def main():
     # Instantiate the TubeArchivistAPI class
     api = TubeArchivistAPI(BASE_URL, API_TOKEN)
 
+    # Call the get_all_tasks method
+    all_tasks = api.get_all_tasks()
+    if all_tasks:
+        print("\nAll Tasks:")
+        formatted_tasks = api.format_tasks(all_tasks)
+        print(json.dumps(formatted_tasks, indent=4))
+    else:
+        print("Failed to retrieve all tasks.")
+
     # Call the get_latest_videos method, passing the page_size argument
     latest_videos = api.get_latest_videos()
-    channel_stats = api.get_channel_stats()
-    biggest_channels = api.get_biggest_channels()
-
+    #print(f"{latest_videos}")
     if latest_videos:
-        print("Latest Videos:")
+        print("\nLatest Videos:")
         formatted_videos = api.format_videos(latest_videos)
         print(f"Formatted Videos: {json.dumps(formatted_videos, indent=4)}")
     else:
         print("Failed to retrieve latest videos.")
 
+    channel_stats = api.get_channel_stats()
     if channel_stats:
         print("\nChannel Stats:")
         formatted_channels = api.format_channels(channel_stats)
@@ -118,11 +205,26 @@ def main():
     else:
         print("Failed to retrieve channel stats.")
 
+    biggest_channels = api.get_biggest_channels()
     if biggest_channels:
         print("\nBiggest Channels:")
         print(json.dumps(biggest_channels, indent=4))
     else:
         print("Failed to retrieve biggest channels.")
+
+    video_stats = api.get_video_stats()
+    if video_stats:
+        print("\nVideo Stats:")
+        print(json.dumps(video_stats, indent=4))
+    else:
+        print("Failed to retrieve video stats.")
+
+    watch_stats = api.get_watch_stats()
+    if watch_stats:
+        print("\nWatch Stats:")
+        print(json.dumps(watch_stats, indent=4))
+    else:
+        print("Failed to retrieve watch stats.")
 
 if __name__ == "__main__":
     main()
