@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
-import requests
-import json
 import os
+import json
+import requests
+from dotenv import load_dotenv
 from openai import OpenAI
 import httpx
+
+load_dotenv()
 
 class PaperlessAPI:
     def __init__(self, base_url, api_token):
@@ -19,7 +22,8 @@ class PaperlessAPI:
         """
         Send a document to the LLM server and return the response.
         """
-        client = OpenAI(base_url="http://localhost:9090/v1", api_key="none", timeout=httpx.Timeout(3600))
+        llm_base_url = os.environ.get("LLM_BASE_URL")
+        client = OpenAI(base_url=llm_base_url, api_key="none", timeout=httpx.Timeout(3600))
 
         completion = client.chat.completions.create(
             model="llama-3.2-3b-it-q8_0",
@@ -126,8 +130,8 @@ class PaperlessAPI:
 
 def main():
     # Load configuration from environment variables or a config file.
-    base_url = "http://paperless.lan/api/"
-    api_token = ""  #API token from user profile goes here.
+    base_url = os.environ.get("PAPERLESS_BASE_URL")
+    api_token = os.environ.get("PAPERLESS_API_TOKEN")
 
     if not base_url or not api_token:
         print("Error: PAPERLESS_BASE_URL and PAPERLESS_API_TOKEN environment variables must be set.")
