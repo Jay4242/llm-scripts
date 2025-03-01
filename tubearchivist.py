@@ -2,6 +2,7 @@ import requests
 import json
 import os
 import time
+from time import sleep
 from functools import wraps
 from dotenv import load_dotenv
 
@@ -85,6 +86,34 @@ class TubeArchivistAPI:
         data = response.json()
         return data
 
+    def get_all_videos(self, page_size=5):
+        """Retrieves all videos from the TubeArchivist API, paginating through all pages."""
+        all_videos = []
+        page = 1
+        while True:
+            endpoint = f"{self.base_url}/api/video/?page={page}&page_size={page_size}"
+            headers = {"Authorization": f"Token {self.api_token}"}
+            try:
+                response = requests.get(endpoint, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                if "data" in data and isinstance(data["data"], list):
+                    for video in data["data"]:
+                        if "youtube_id" in video:
+                            has_subtitles = "subtitles" in video and video["subtitles"]
+                            if has_subtitles:
+                                print(f"{video['youtube_id']} Had Subtitles")
+                                sleep(1)
+                            else:
+                                print(f"{video['youtube_id']} Had NO Subtitles")
+                                sleep(1)
+                if not data["paginate"]["next_pages"]:
+                    break
+                page = data["paginate"]["current_page"] + 1
+            except requests.exceptions.RequestException as e:
+                print(f"Error during get_all_videos pagination: {e}")
+                return
+
     def format_videos(self, videos):
         """
         Formats the video data for more human-readable output.
@@ -164,6 +193,38 @@ class TubeArchivistAPI:
             formatted_tasks.append(formatted_task)
         return formatted_tasks
 
+    def format_search_results(self, search_results):
+        """
+        Formats the search results into a more human-readable format.
+        """
+        formatted_videos = []
+        if search_results and search_results["results"]["video_results"]:
+            for video in search_results["results"]["video_results"]:
+                formatted_video = {
+                    "Title": video["title"],
+                    "Video ID": video["youtube_id"],
+                    "Description": video["description"],
+                    "Channel": video["channel"]["channel_name"],
+                    "Published": video["published"],
+                    "Duration": video["player"]["duration_str"],
+                    "Views": video["stats"]["view_count"],
+                }
+                formatted_videos.append(formatted_video)
+        return formatted_videos
+
+    @retry_request()
+    def search(self, query: str):
+        """
+        Searches the TubeArchivist API with the given query.
+        """
+        endpoint = f"{self.base_url}/api/search/?query={query}"
+        headers = {"Authorization": f"Token {self.api_token}"}
+
+        response = requests.get(endpoint, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        return data
+
 def main():
     """
     Main function to interact with the TubeArchivist API.
@@ -177,6 +238,15 @@ def main():
 
     # Instantiate the TubeArchivistAPI class
     api = TubeArchivistAPI(BASE_URL, API_TOKEN)
+
+    # Call the search method
+    search_results = api.search(query="test")
+    if search_results:
+        print("\nSearch Results:")
+        formatted_search_results = api.format_search_results(search_results)
+        print(json.dumps(formatted_search_results, indent=4))
+    else:
+        print("Failed to retrieve search results.")
 
     # Call the get_all_tasks method
     all_tasks = api.get_all_tasks()
@@ -225,6 +295,11 @@ def main():
         print(json.dumps(watch_stats, indent=4))
     else:
         print("Failed to retrieve watch stats.")
+
+    # Find videos without subtitles
+    api.get_all_videos()
+    
+
 
 if __name__ == "__main__":
     main()
