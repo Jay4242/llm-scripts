@@ -181,10 +181,18 @@ def main():
                             print(f"Title: {full_document['title']}")
                             print(f"Content: {full_document['content']}")
 
+                            # Get document details
+                            document_title = full_document['title']
+                            correspondent_id = full_document['correspondent']
+                            correspondent = None
+                            if correspondent_id:
+                                correspondent = api.get(f"correspondents/{correspondent_id}")
+                            correspondent_name = correspondent['name'] if correspondent else "Unknown"
+
                             # Get LLM prompts
                             system_prompt = "You are a helpful assistant."
-                            pre_prompt = "Summarize the following document:"
-                            post_prompt = "In three sentences or less."
+                            pre_prompt = f"The following is a document titled {document_title}, from {correspondent_name}:"
+                            post_prompt = "Summarize the document in three sentences or less."
                             temperature = 0.7
 
                             # Call the LLM function
