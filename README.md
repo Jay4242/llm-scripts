@@ -1,39 +1,125 @@
 # llm-scripts
-Random llm scripts
 
+A collection of scripts that leverage Large Language Models (LLMs) for various tasks. These scripts are designed to interact with a local LLM server, such as llama-server, providing functionalities ranging from simple conversations to complex data processing and automation.
 
-### llm-conv.py
+## Scripts
 
-llm Python conversation script.
+### `llm-conv.py`
 
-Takes a system prompt, user prompt, and temperature as a parameter then starts a chat.
+A Python script for conducting interactive conversations with an LLM.
 
-It doesn't check context length at all so eventually a chat on all of these that use the same method would hit the limit and be handled however the software handles context limits.
+**Purpose:**
+This script takes a system prompt, an initial user prompt, and a temperature value as input. It then initiates a chat session with the LLM, allowing you to have a continuous conversation.
 
+**Usage:**
+```bash
+python llm-conv.py <system_prompt> <initial_prompt> <temperature>
+```
+- `<system_prompt>`: A string that sets the context and behavior of the LLM (e.g., "You are a helpful assistant").
+- `<initial_prompt>`: The first message you send to the LLM to start the conversation.
+- `<temperature>`: A float value (e.g., 0.7) that controls the randomness of the LLM's responses. Higher values result in more creative and unpredictable outputs.
 
-### llm-file-conv.py
+**Note:**
+This script does not have built-in context length management. Over time, as the conversation grows, it may exceed the LLM's context window, leading to truncated or nonsensical responses.
 
-llm Python file conversation script.
+### `llm-file-conv.py`
 
-Basically the same as `llm-conv.py` except it loads a file chosen as a parameter to be loaded into the context.
+A Python script that extends `llm-conv.py` by incorporating a file's content into the LLM's context.
 
+**Purpose:**
+This script allows you to provide the LLM with the content of a file, enabling it to answer questions or perform tasks related to that content.
 
-### llm-file-conv-pygame.py
+**Usage:**
+```bash
+python llm-file-conv.py <system_prompt> <file_path> <initial_prompt> <temperature>
+```
+- `<system_prompt>`: Same as in `llm-conv.py`.
+- `<file_path>`: The path to the file whose content you want to include in the conversation.
+- `<initial_prompt>`: Same as in `llm-conv.py`.
+- `<temperature>`: Same as in `llm-conv.py`.
 
-The same as `llm-file-conv.py` except it tries to display things in a pygame screen simultaneously.
+**Example:**
+```bash
+python llm-file-conv.py "You are a code reviewer" my_code.py "What potential bugs do you see in this code?" 0.6
+```
 
-The pygame screen does not currently display the text correctly.
+### `llm-file-conv-pygame.py`
 
+An experimental script that combines the functionality of `llm-file-conv.py` with a Pygame interface.
 
-### llm-conv-file-memory.py
+**Purpose:**
+This script aims to display the conversation with the LLM in a graphical window using Pygame.
 
-My attempt at a memory implementation where you load a memory text file and ask the bot if it wants to update the text file.
+**Usage:**
+```bash
+python llm-file-conv-pygame.py <system_prompt> <file_path> <subject_line> <initial_prompt> <temperature>
+```
+- `<system_prompt>`: Same as in `llm-file-conv.py`.
+- `<file_path>`: Same as in `llm-file-conv.py`.
+- `<subject line>`: A short description of the file's content.
+- `<initial_prompt>`: Same as in `llm-conv.py`.
+- `<temperature>`: Same as in `llm-conv.py`.
 
+**Note:**
+The Pygame display functionality is currently incomplete and may not render the text correctly.
 
-### llm-plex.bash
+### `llm-conv-file-memory.py`
 
-Accesses a local Plex server to make suggestions, including against current RottenTomatoes suggestions.
+A Python script that attempts to implement a memory mechanism for LLM conversations by updating a text file with relevant information from the conversation.
+
+**Purpose:**
+This script aims to maintain a persistent memory of the conversation by allowing the LLM to suggest updates to a "memory" file.
+
+**Usage:**
+```bash
+python llm-conv-file-memory.py <system_prompt> <file_path> <initial_prompt> <temperature>
+```
+- `<system_prompt>`: Same as in `llm-file-conv.py`.
+- `<file_path>`: The path to the memory file.
+- `<initial_prompt>`: Same as in `llm-conv.py`.
+- `<temperature>`: Same as in `llm-conv.py`.
+
+**How it works:**
+1.  The script reads the content of the memory file.
+2.  It sends the file content, along with the user's input, to the LLM.
+3.  The LLM determines if the user's input contains information that should be added to the memory file.
+4.  If the LLM decides to update the memory file, it suggests the changes.
+5.  The script appends the suggested changes to the memory file.
+
+### `llm-plex.bash`
+
+A Bash script that interacts with a local Plex media server to provide movie suggestions based on your library and Rotten Tomatoes data.
+
+**Purpose:**
+This script automates the process of getting movie recommendations by:
+
+1.  Fetching movie genres and unwatched movies from your Plex server.
+2.  Scraping movie data from Rotten Tomatoes.
+3.  Using an LLM to suggest movies based on your Plex library and Rotten Tomatoes ratings.
+
+**Usage:**
+
+1.  Set the `api` variable in the script to your Plex API key.
+2.  Ensure that the `PLEX_URL` variable is set correctly (default: `http://plex.lan`).
+3.  Run the script:
+    ```bash
+    ./llm-plex.bash
+    ```
+
+**Dependencies:**
+
+-   `curl`
+-   `jq`
+-   `xmlstarlet`
+-   `llm-python-file.py`
+-   `llm-python-file-2.py`
+-   `llm-rottentomatoes.bash`
+
+**Note:**
+
+-   This script requires that you have a local LLM server running and accessible.
+-   The script uses several helper scripts (`llm-python-file.py`, `llm-python-file-2.py`, and `llm-rottentomatoes.bash`) to interact with the LLM and scrape data from Rotten Tomatoes.
 
 Screenshot of output:
 
-![llm-plex.bash screenshot](https://github.com/Jay4242/llm-scripts/blob/cb64a0b605a5a3f9255b618d2dd16aed32836b0b/screenshots/llm-plex.png)
+![llm-plex.bash screenshot](screenshots/llm-plex.png)
