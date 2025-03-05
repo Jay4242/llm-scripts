@@ -1,6 +1,19 @@
 # llm-scripts
 
-A collection of scripts that leverage Large Language Models (LLMs) for various tasks. These scripts are designed to interact with a local LLM server, such as llama-server, providing functionalities ranging from simple conversations to complex data processing and automation.
+A collection of scripts that leverage Large Language Models (LLMs) for various tasks.
+
+## Scripts
+
+-   [llm-conv.py](#llm-convpy) - A script for conducting interactive conversations with an LLM.
+-   [llm-file-conv.py](#llm-file-convpy) - Extends `llm-conv.py` by incorporating a file's content into the LLM's context.
+-   [llm-file-conv-pygame.py](#llm-file-conv-pygamepy) - Combines the functionality of `llm-file-conv.py` with a Pygame interface.
+-   [llm-conv-file-memory.py](#llm-conv-file-memorypy) - Implements a memory mechanism for LLM conversations by updating a text file.
+-   [llm-plex.bash](#llm-plexbash) - Interacts with a local Plex media server to provide movie suggestions.
+-   [paperless.py](#paperlesspy) - Interacts with a Paperless instance to manage and analyze documents.
+-   [tubearchivist.py](#tubearchivistpy) - Interacts with a TubeArchivist instance to manage and analyze video content.
+-   [llm-rottentomatoes.bash](#llm-rottentomatoesbash) - Scrapes movie information from Rotten Tomatoes.
+
+These scripts are designed to interact with a local LLM server, such as llama-server, providing functionalities ranging from simple conversations to complex data processing and automation.
 
 ## Scripts
 
@@ -122,4 +135,108 @@ This script automates the process of getting movie recommendations by:
 
 Screenshot of output:
 
-![llm-plex.bash screenshot](screenshots/llm-plex.png)
+### `paperless.py`
+
+A Python script that interacts with a Paperless instance to manage and analyze documents.
+
+**Purpose:**
+
+This script provides functionalities to:
+
+-   Retrieve a list of documents.
+-   Retrieve a specific document by ID.
+-   Create a new document.
+-   Search for documents.
+-   Retrieve the full information for a specific document by ID.
+
+**Usage:**
+
+1.  Set the `PAPERLESS_BASE_URL` and `PAPERLESS_API_TOKEN` environment variables with your Paperless base URL and API token, respectively.
+2.  Run the script:
+
+```bash
+python paperless.py
+```
+
+**Dependencies:**
+
+-   `requests`
+-   `json`
+-   `os`
+-   `dotenv`
+-   `openai`
+-   `httpx`
+
+**Configuration:**
+
+The script relies on environment variables for configuration:
+
+-   `PAPERLESS_BASE_URL`: The base URL of your Paperless instance (e.g., `http://paperless.lan`).
+-   `PAPERLESS_API_TOKEN`: Your Paperless API token.
+-   `LLM_BASE_URL`: The base URL of your local LLM server (e.g., `http://localhost:9090/v1`).
+
+**Note:**
+
+-   Ensure that your Paperless instance is running and accessible.
+-   This script also requires a local LLM server to be running for document summarization.
+
+### `llm-rottentomatoes.bash`
+
+A Bash script that scrapes movie information from Rotten Tomatoes.
+
+**Purpose:**
+
+This script retrieves movie data, including titles, critic ratings, audience ratings, and descriptions, from the Rotten Tomatoes website.
+
+**Usage:**
+
+```bash
+./llm-rottentomatoes.bash
+```
+
+**Dependencies:**
+
+-   `curl`
+-   `jq`
+
+### `tubearchivist.py`
+
+A Python script that interacts with a TubeArchivist instance to manage and analyze video content.
+
+**Purpose:**
+
+This script provides functionalities to:
+
+-   Retrieve the latest downloaded videos.
+-   Fetch channel and video statistics.
+-   Search for videos.
+-   Retrieve and format task information.
+
+**Usage:**
+
+1.  Set the `TUBE_ARCHIVIST_BASE_URL` and `API_TOKEN` environment variables with your TubeArchivist base URL and API token, respectively.
+2.  Run the script:
+
+```bash
+python tubearchivist.py
+```
+
+**Dependencies:**
+
+-   `requests`
+-   `json`
+-   `os`
+-   `time`
+-   `dotenv`
+
+**Configuration:**
+
+The script relies on environment variables for configuration:
+
+-   `TUBE_ARCHIVIST_BASE_URL`: The base URL of your TubeArchivist instance (e.g., `http://tubearchivist.lan`).
+-   `API_TOKEN`: Your TubeArchivist API token.
+
+**Note:**
+
+-   Ensure that your TubeArchivist instance is running and accessible.
+-   The script includes a retry mechanism for API requests to handle potential server errors.
