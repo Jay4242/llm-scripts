@@ -94,16 +94,27 @@ class TaskWarrior:
         If the task is overdue, insist that the task is urgent and needs to be completed immediately.
         If the task is due soon, tell them to prepare for it.
         If the task is far off, tell them to schedule time for it.
+        Negative values indicate overdue tasks.
         Be concise and helpful."""
         pre_prompt = "Here is the most urgent task:"
         post_prompt = "What instructions would you give to the user to complete this task? Respond with natural language."
         temperature = 0.7
+
+        # Get the header row
+        header, header_err = self.execute(['next'])
+        if header_err:
+            print(f"Error getting header row: {header_err}", file=sys.stderr)
+            return
+
+        header = header.splitlines()[0]
 
         # Get the most urgent task info
         stdout, stderr = self.get_most_urgent_task_info()
         if stderr:
             print(f"Error getting most urgent task info: {stderr}", file=sys.stderr)
             return
+
+        stdout = header + '\n' + stdout
 
         print("Instructions for Most Urgent Task:")
         self._stream_completion(system_prompt, pre_prompt, stdout, post_prompt, temperature)
