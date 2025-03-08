@@ -16,6 +16,7 @@ The following attributes can be used when creating or modifying tasks:
 *   `recur`: Recurrence frequency (e.g., `P1D` for daily, `P1W` for weekly, `P1M` for monthly, `P1Y` for yearly).
 *   `tags`: Arbitrary words. Add with `+tag`, remove with `-tag`.  Virtual tags such as `ACTIVE`, `BLOCKED`, `DUE`, etc. can be used for filtering.
 *   `depends`: UUID of other tasks that this task depends upon.
+*   `annotate`: Adds a note to the task. Example: `task 1 annotate "Call back and ask for a discount"`
 
 ### Attribute Modifiers
 
@@ -36,6 +37,8 @@ Context is a user-defined query, which is automatically applied to all commands 
 *   `add`: Adds a new task. Example: `task add "Pay bills" due:eom project:Finance +urgent`
 *   `modify`: Modifies an existing task. Example: `task 1 modify priority:H`
 *   `done`: Marks a task as complete. Example: `task 1 done`
+*   `delete`: Deletes a task. Example: `task 6 delete`
+*   `purge`: Permanently removes a deleted task. Example: `task 6 purge`
 
 ### Tag Handling
 
