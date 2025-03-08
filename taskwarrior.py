@@ -86,27 +86,56 @@ class TaskWarrior:
                 print(chunk.choices[0].delta.content, end="", flush=True)
         print('\n')
 
+    def update_user(self):
+        """Gets the most urgent task and provides the user with instructions on how to complete it."""
+
+        system_prompt = """You are a helpful assistant that provides instructions to the user on how to complete their most urgent task.
+        Pay close attention to the due date.
+        If the task is overdue, insist that the task is urgent and needs to be completed immediately.
+        If the task is due soon, tell them to prepare for it.
+        If the task is far off, tell them to schedule time for it.
+        Be concise and helpful."""
+        pre_prompt = "Here is the most urgent task:"
+        post_prompt = "What instructions would you give to the user to complete this task? Respond with natural language."
+        temperature = 0.7
+
+        # Get the most urgent task info
+        stdout, stderr = self.get_most_urgent_task_info()
+        if stderr:
+            print(f"Error getting most urgent task info: {stderr}", file=sys.stderr)
+            return
+
+        print("Instructions for Most Urgent Task:")
+        self._stream_completion(system_prompt, pre_prompt, stdout, post_prompt, temperature)
+
     def get_most_urgent_task_info(self):
-        """Gets the most urgent task and prints its information using the generate function."""
+        """Gets the most urgent task and returns its information."""
 
         system_prompt = """You are a taskwarrior expert.
         '-4d' means the task is 4 days overdue.
         Taskwarrior calculates urgency based on priority, due date, and dependencies.
         '+tag' means a tag is added, '-tag' means a tag is removed.
         Dates can be relative (e.g., 'tomorrow', 'eom') or absolute (e.g., '2024-01-01').
-        Projects can be hierarchical (e.g., 'Project.Subproject')."""
+        Projects can be hierarchical (e.g., 'Project.Subproject').
+        A negative due date means the task is overdue, a positive due date means the task is upcoming."""
         pre_prompt = "Here is my TaskWarrior output:"
-        post_prompt = "Which task is most overdue? List only one, and include all of its details, all on one line, with no other text. Respond with only the task details."
+        post_prompt = "Which task is most urgent? List only one, and include all of its details, all on one line, with no other text. Respond with only the task details."
         temperature = 0.0
 
         # Get the most urgent task
         stdout, stderr = self.execute(['next'])
         if stderr:
-            print(f"Error getting most urgent task: {stderr}", file=sys.stderr)
-            return
+            return None, stderr
 
-        print("Most Urgent Task:")
-        self._stream_completion(system_prompt, pre_prompt, stdout, post_prompt, temperature)
+        # Capture the output of _stream_completion
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            self._stream_completion(system_prompt, pre_prompt, stdout, post_prompt, temperature)
+        output = f.getvalue().strip()
+
+        return output, None
 
     def generate_task_command(self, natural_language_request, temp):
         """Generates a taskwarrior command from a natural language request using a local LLM server."""
@@ -165,7 +194,6 @@ class TaskWarrior:
             print("Task not added.")
 
 
-
 if __name__ == '__main__':
     tw = TaskWarrior()
 
@@ -177,8 +205,11 @@ if __name__ == '__main__':
         print(f"Error: {error}", file=sys.stderr)
     print('\n')
 
+    # Example usage of update_user
+    tw.update_user()
+
     # Example usage of get_most_urgent_task_info
-    tw.get_most_urgent_task_info()
+    #tw.get_most_urgent_task_info()
 
     # Example usage of generate_task_command
-    tw.generate_task_command("create an appointment at March 28th 2025 at 2:00pm for 'IncomeTaxes'", 0.0)
+    #tw.generate_task_command("create an appointment at March 28th 2025 at 2:00pm for 'IncomeTaxes'", 0.0)
