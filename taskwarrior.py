@@ -109,15 +109,29 @@ class TaskWarrior:
         header = header.splitlines()[0]
 
         # Get the most urgent task info
-        stdout, stderr = self.get_most_urgent_task_info()
+        most_urgent_task_info, stderr = self.get_most_urgent_task_info()
         if stderr:
             print(f"Error getting most urgent task info: {stderr}", file=sys.stderr)
             return
 
-        stdout = header + '\n' + stdout
+        # Extract the task ID from the most urgent task info
+        try:
+            task_id = most_urgent_task_info.split()[0]  # Assuming the ID is the first element
+            task_id = task_id.replace(' ', '')
+        except IndexError:
+            print("Error: Could not extract task ID from most urgent task info.", file=sys.stderr)
+            return
 
-        print("Instructions for Most Urgent Task:")
-        self._stream_completion(system_prompt, pre_prompt, stdout, post_prompt, temperature)
+        # Get more detailed task information
+        task_info, task_info_err = self.execute([task_id, 'info'])
+        if task_info_err:
+            print(f"Error getting task info: {task_info_err}", file=sys.stderr)
+            return
+
+        # Combine the header, most urgent task info, and detailed task info
+        combined_info = header + '\n' + most_urgent_task_info + '\n' + task_info
+
+        self._stream_completion(system_prompt, pre_prompt, combined_info, post_prompt, temperature)
 
     def get_most_urgent_task_info(self):
         """Gets the most urgent task and returns its information."""
@@ -163,6 +177,12 @@ class TaskWarrior:
         post_prompt = "\n\nHere is my request: " + natural_language_request + "\n\nWhat is the correct taskwarrior command to accomplish this? Respond with only the command."
         temperature = temp
 
+        # Get the current tasks
+        task_next_output, task_next_error = self.execute(['next'])
+        if task_next_error:
+            print(f"Error getting current tasks: {task_next_error}", file=sys.stderr)
+            return
+
         # Read the contents of taskwarrior.md
         try:
             with open("taskwarrior.md", "r") as f:
@@ -180,6 +200,8 @@ class TaskWarrior:
             model="llama-3.2-3b-it-q8_0",
             messages=[
                 {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "Here is the current task status:"},
+                {"role": "user", "content": task_next_output},
                 {"role": "user", "content": pre_prompt},
                 {"role": "user", "content": taskwarrior_md_content},
                 {"role": "user", "content": post_prompt}
@@ -195,8 +217,13 @@ class TaskWarrior:
         # Ask the user if they want to add the task
         add_task = input("Add this task to Taskwarrior? (y/n): ")
         if add_task.lower() == 'y':
+            # Strip the "task" keyword from the beginning of the command
+            command_to_execute = generated_command.split()
+            if command_to_execute[0] == 'task':
+                command_to_execute = command_to_execute[1:]
+
             # Execute the task command
-            stdout, stderr = self.execute(generated_command.split())
+            stdout, stderr = self.execute(command_to_execute)
             if stdout:
                 print(stdout)
             if stderr:
@@ -208,19 +235,34 @@ class TaskWarrior:
 if __name__ == '__main__':
     tw = TaskWarrior()
 
-    # Display the most urgent task
-    output, error = tw.execute(['next'])
-    if output:
-        print(output)
-    if error:
-        print(f"Error: {error}", file=sys.stderr)
-    print('\n')
+    if len(sys.argv) > 1:
+        if sys.argv[1] == 'generate':
+            if len(sys.argv) > 2:
+                natural_language_request = sys.argv[2]
+                tw.generate_task_command(natural_language_request, 0.0)
+            else:
+                print("Error: Please provide a natural language request.", file=sys.stderr)
+        elif sys.argv[1] == 'urgent':
+            tw.update_user()
+        elif sys.argv[1] == 'get_most_urgent_task_info':
+            tw.get_most_urgent_task_info()
+        else:
+            print(f"Error: Unknown command '{sys.argv[1]}'", file=sys.stderr)
+    else:
+        # Display the most urgent task
+        output, error = tw.execute(['next'])
+        if output:
+            print(output)
+        if error:
+            print(f"Error: {error}", file=sys.stderr)
+        print('\n')
 
-    # Example usage of update_user
-    tw.update_user()
+        print("Instructions for Most Urgent Task:")
+        # Example usage of update_user
+        tw.update_user()
 
-    # Example usage of get_most_urgent_task_info
-    #tw.get_most_urgent_task_info()
+        # Example usage of get_most_urgent_task_info
+        #tw.get_most_urgent_task_info()
 
-    # Example usage of generate_task_command
-    #tw.generate_task_command("create an appointment at March 28th 2025 at 2:00pm for 'IncomeTaxes'", 0.0)
+        # Example usage of generate_task_command
+        #tw.generate_task_command("create an appointment at March 28th 2025 at 2:00pm for 'IncomeTaxes'", 0.0)
