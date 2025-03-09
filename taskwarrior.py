@@ -6,6 +6,7 @@ import sys
 from openai import OpenAI
 import httpx
 import os
+from datetime import datetime
 
 class TaskWarrior:
     def __init__(self, task_binary='task'):
@@ -18,9 +19,10 @@ class TaskWarrior:
                 [self.task_binary] + args,
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                input="yes\n"  # Automatically answer "yes" to any prompts
             )
-            return process.stdout.strip() , None  # Return stdout, no error
+            return process.stdout.strip(), None  # Return stdout, no error
         except subprocess.CalledProcessError as e:
             return None, e.stderr.strip()  # Return no stdout, return stderr
         except FileNotFoundError:
@@ -95,8 +97,9 @@ class TaskWarrior:
         If the task is due soon, tell them to prepare for it.
         If the task is far off, tell them to schedule time for it.
         Negative values indicate overdue tasks.
-        Be concise and helpful."""
-        pre_prompt = "Here is the most urgent task:"
+        Be concise and helpful.
+        Today's date is: {datetime.now().strftime('%Y-%m-%d')}."""
+        pre_prompt = f"Here is the most urgent task.:"
         post_prompt = "What instructions would you give to the user to complete this task? Respond with natural language."
         temperature = 0.7
 
@@ -137,13 +140,14 @@ class TaskWarrior:
         """Gets the most urgent task and returns its information."""
 
         system_prompt = """You are a taskwarrior expert.
-        '-4d' means the task is 4 days overdue.
+        '-<number>d' means the task is <number> days overdue.
         Taskwarrior calculates urgency based on priority, due date, and dependencies.
         '+tag' means a tag is added, '-tag' means a tag is removed.
         Dates can be relative (e.g., 'tomorrow', 'eom') or absolute (e.g., '2024-01-01').
         Projects can be hierarchical (e.g., 'Project.Subproject').
-        A negative due date means the task is overdue, a positive due date means the task is upcoming."""
-        pre_prompt = "Here is my TaskWarrior output:"
+        A negative due date means the task is overdue, a positive due date means the task is upcoming.
+        Today's date is: {datetime.now().strftime('%Y-%m-%d')}."""
+        pre_prompt = f"Here is my TaskWarrior output.:"
         post_prompt = "Which task is most urgent? List only one, and include all of its details, all on one line, with no other text. Respond with only the task details."
         temperature = 0.0
 
@@ -211,7 +215,8 @@ class TaskWarrior:
         ):
             if chunk.choices[0].delta.content:
                 generated_command += chunk.choices[0].delta.content
-                print(chunk.choices[0].delta.content, end="", flush=True)
+        generated_command = generated_command.replace('`', '')
+        print(generated_command, end="", flush=True)
         print('\n')
 
         # Ask the user if they want to add the task
@@ -221,6 +226,9 @@ class TaskWarrior:
             command_to_execute = generated_command.split()
             if command_to_execute[0] == 'task':
                 command_to_execute = command_to_execute[1:]
+
+            # Strip backticks from the command
+            command_to_execute = [arg.replace('`', '') for arg in command_to_execute]
 
             # Execute the task command
             stdout, stderr = self.execute(command_to_execute)
