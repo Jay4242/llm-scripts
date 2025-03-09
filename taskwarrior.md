@@ -9,7 +9,7 @@ The following attributes can be used when creating or modifying tasks:
 *   `description`: Task description text. Enclose in quotes if it contains capital letters or special characters.
 *   `project`: Project name. Hierarchies are supported (e.g., `Project.Subproject`).
 *   `priority`: Priority (`H`, `M`, `L`, or blank for no priority).
-*   `due`: Due date. Can be relative (e.g., `tomorrow`, `eom`, `eow`) or absolute (e.g., `YYYY-MM-DD`).
+*   `due`: Due date. Can be relative (e.g., `tomorrow`, `eom`, `eow`) or absolute (e.g., `YYYY-MM-DD`). When a `due` date is set without a specific time, Taskwarrior interprets it as the end of that day (23:59:59). Tasks with a `due` date in the past are considered overdue. The urgency calculation gives overdue tasks higher priority. Taskwarrior supports predictable holidays as due dates, such as `goodfriday`, `easter`, and `christmas`.  You can specify date ranges for the `due` attribute using the `before` and `after` modifiers.
 *   `scheduled`: Date and time the task is scheduled to start. Use the format `YYYY-MM-DDTHH:MM:SS`.
 *   `wait`: Date until task becomes pending.
 *   `until`: Expiration date of a recurring task.
