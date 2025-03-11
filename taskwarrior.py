@@ -148,7 +148,7 @@ class TaskWarrior:
         A negative due date means the task is overdue, a positive due date means the task is upcoming.
         Today's date is: {datetime.now().strftime('%Y-%m-%d')}."""
         pre_prompt = f"Here is my TaskWarrior output.:"
-        post_prompt = "Which task is most urgent? List only one, and include all of its details, all on one line, with no other text. Respond with only the task details."
+        post_prompt = "Which task is most urgent? List only one, and include all of its details, all on one line, with no other text. Respond with only the task details.  Always start the line with the task ID with nothing prepended to it."
         temperature = 0.0
 
         # Get the most urgent task
@@ -182,17 +182,18 @@ class TaskWarrior:
         temperature = temp
 
         # Get the current tasks
-        task_next_output, task_next_error = self.execute(['next'])
-        if task_next_error:
-            print(f"Error getting current tasks: {task_next_error}", file=sys.stderr)
+        task_output, task_error = self.execute([])
+        if task_error:
+            print(f"Error getting current tasks: {task_error}", file=sys.stderr)
             return
 
         # Read the contents of taskwarrior.md
+        taskwarrior_md_path = "/usr/local/share/man/taskwarrior.md"
         try:
-            with open("taskwarrior.md", "r") as f:
+            with open(taskwarrior_md_path, "r") as f:
                 taskwarrior_md_content = f.read()
         except FileNotFoundError:
-            print("Error: taskwarrior.md not found.", file=sys.stderr)
+            print(f"Error: taskwarrior.md not found at {taskwarrior_md_path}.", file=sys.stderr)
             return
         except Exception as e:
             print(f"Error reading taskwarrior.md: {e}", file=sys.stderr)
@@ -205,7 +206,7 @@ class TaskWarrior:
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": "Here is the current task status:"},
-                {"role": "user", "content": task_next_output},
+                {"role": "user", "content": task_output},
                 {"role": "user", "content": pre_prompt},
                 {"role": "user", "content": taskwarrior_md_content},
                 {"role": "user", "content": post_prompt}
