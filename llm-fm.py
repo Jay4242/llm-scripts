@@ -200,8 +200,8 @@ def get_dj_info(genre, last_played):
     user_prompt = (
         "Pick a song that you want to play next and add a short description to lead into the song. "
         "Output this in JSON. Only include the fields for the 'song' and 'description'. Use the JSON format. "
-        "The song should be in 'Song_Name - Artist' format. The current date is {}. ".format(curdate) +
-        f"You've already played these tracks ```{last_played}``` NEVER replay them!"
+        "The song should be in 'Song_Name - Artist' format. The current date is {}.".format(curdate) +
+        f"You've already played these tracks (most recent first) ```{last_played}``` NEVER replay them!"
     )
     dj_info = llm_call(system_prompt, user_prompt)
     assert dj_info is not None, "LLM returned None"
@@ -236,9 +236,9 @@ def manage_last_played(song, last_played):
     assert isinstance(last_played, list), "last_played must be a list"
 
     print(f"(Last Played was: {last_played})")
-    last_played.append(song)
+    last_played.insert(0, song)
     if len(last_played) > MAX_LAST_PLAYED:
-        last_played.pop(0)
+        last_played.pop()
     return last_played
 
 def get_weather_and_announce(lat, lon):
@@ -300,6 +300,7 @@ def main_loop(genre, lat, lon):
 
             announce_song(desc, song)
 
+            print(f"(Last Played was: {last_played})")
             mpv_process = play_audio(song)
             if mpv_process:
                 mpv_process.wait()
