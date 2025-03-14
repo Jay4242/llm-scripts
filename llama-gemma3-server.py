@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 TEMP_DIR_PREFIX = "/dev/shm/llama-gemma3-server_"
 command_lock = threading.Lock()
-MODEL_DIR = ""  ##Your model directory.
+MODEL_DIR = ""  ## Your model directory here.
 MODEL_FILE = "google_gemma-3-4b-it-Q8_0.gguf"
 MMPROJ_FILE = "mmproj-google_gemma-3-4b-it-f32.gguf"
 IMAGE_DIR_NAME = "images"  # Subdirectory for images
@@ -34,8 +34,7 @@ def chat_completions():
     print(f"Received data: {data}")  # Debugging
 
     # Extract parameters from the request
-    prompt = data.get('messages')[1]['content'][0]['text']
-    image_data = data.get('messages')[1]['content'][1]['image_url']['url'].split(',')[1]  # Expecting base64 encoded image data
+    contents = data.get('messages')[1]['content']
 
     port = get_port()
     temp_dir = TEMP_DIR_PREFIX + str(port)
@@ -43,38 +42,52 @@ def chat_completions():
     model = os.path.join(temp_dir, MODEL_FILE)
     mmproj = os.path.join(temp_dir, MMPROJ_FILE)
 
-    # Handle image data
-    image_path = None
-    if image_data:
-        try:
-            # Check if image_data is a string
-            if not isinstance(image_data, str):
-                raise ValueError("image_data must be a string")
+    prompts = []
+    image_paths = []
 
-            # Decode base64 image data
-            image_bytes = base64.b64decode(image_data)
+    # Iterate through the content array
+    for item in contents:
+        if item['type'] == 'text':
+            prompts.append(item['text'])
+        elif item['type'] == 'image_url':
+            image_data = item['image_url']['url'].split(',')[1]
+            image_path = None
+            try:
+                # Check if image_data is a string
+                if not isinstance(image_data, str):
+                    raise ValueError("image_data must be a string")
 
-            # Create a temporary file in the images subdirectory
-            temp_image_file = tempfile.NamedTemporaryFile(dir=image_dir, delete=False, suffix=".jpg")  # You might want to adjust the suffix based on the image type
-            image_path = temp_image_file.name
+                # Decode base64 image data
+                image_bytes = base64.b64decode(image_data)
 
-            # Write the image bytes to the temporary file
-            temp_image_file.write(image_bytes)
-            temp_image_file.close()
+                # Create a temporary file in the images subdirectory
+                temp_image_file = tempfile.NamedTemporaryFile(dir=image_dir, delete=False, suffix=".jpg")  # You might want to adjust the suffix based on the image type
+                image_path = temp_image_file.name
 
-            print(f"Saved image to temporary file: {image_path}")  # Debugging
-        except Exception as e:
-            print(f"Error processing image data: {e}")
-            return jsonify({"error": f"Error processing image data: {e}"}), 400
+                # Write the image bytes to the temporary file
+                temp_image_file.write(image_bytes)
+                temp_image_file.close()
+
+                print(f"Saved image to temporary file: {image_path}")  # Debugging
+                image_paths.append(image_path)
+            except Exception as e:
+                print(f"Error processing image data: {e}")
+                return jsonify({"error": f"Error processing image data: {e}"}), 400
 
     # Construct the command
     command = ["/usr/local/bin/llama-gemma3-cli"]  # Assuming llama-gemma3-cli is in /usr/local/bin
     command.extend(["-m", model])
     command.extend(["--mmproj", mmproj])
-    if prompt:
-        command.extend(["-p", f'"{prompt}"'])
-    if image_data:
+    
+    # Combine all prompts into a single prompt
+    combined_prompt = " ".join(prompts)
+    if combined_prompt:
+        command.extend(["-p", f'"{combined_prompt}"'])
+    
+    # Add all image paths to the command
+    for image_path in image_paths:
         command.extend(["--image", image_path])
+    
     command.extend(["--log-disable"])
 
     print(f"Executing command: {' '.join(command)}")  # Debugging
@@ -106,8 +119,8 @@ def chat_completions():
             return jsonify({"error": str(e)}), 500
         finally:
             print("Releasing command lock")  # Debugging
-            # Clean up the temporary image file
-            if image_path:
+            # Clean up the temporary image files
+            for image_path in image_paths:
                 try:
                     os.remove(image_path)
                     print(f"Deleted temporary image file: {image_path}")  # Debugging
