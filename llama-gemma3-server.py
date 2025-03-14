@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 TEMP_DIR_PREFIX = "/dev/shm/llama-gemma3-server_"
 command_lock = threading.Lock()
-MODEL_DIR = ""  ## Your model directory here.
+MODEL_DIR = ""                                                ## Your model directory here.
 MODEL_FILE = "google_gemma-3-4b-it-Q8_0.gguf"
 MMPROJ_FILE = "mmproj-google_gemma-3-4b-it-f32.gguf"
 IMAGE_DIR_NAME = "images"  # Subdirectory for images
@@ -42,13 +42,15 @@ def chat_completions():
     model = os.path.join(temp_dir, MODEL_FILE)
     mmproj = os.path.join(temp_dir, MMPROJ_FILE)
 
-    prompts = []
+    command = ["/usr/local/bin/llama-gemma3-cli"]  # Assuming llama-gemma3-cli is in /usr/local/bin
+    command.extend(["-m", model])
+    command.extend(["--mmproj", mmproj])
+    
+    # Iterate through the content array and build the command
     image_paths = []
-
-    # Iterate through the content array
     for item in contents:
         if item['type'] == 'text':
-            prompts.append(item['text'])
+            command.extend(["-p", f'"{item['text']}"'])
         elif item['type'] == 'image_url':
             image_data = item['image_url']['url'].split(',')[1]
             image_path = None
@@ -63,31 +65,18 @@ def chat_completions():
                 # Create a temporary file in the images subdirectory
                 temp_image_file = tempfile.NamedTemporaryFile(dir=image_dir, delete=False, suffix=".jpg")  # You might want to adjust the suffix based on the image type
                 image_path = temp_image_file.name
+                image_paths.append(image_path)
 
                 # Write the image bytes to the temporary file
                 temp_image_file.write(image_bytes)
                 temp_image_file.close()
 
                 print(f"Saved image to temporary file: {image_path}")  # Debugging
-                image_paths.append(image_path)
+                command.extend(["--image", image_path])
             except Exception as e:
                 print(f"Error processing image data: {e}")
                 return jsonify({"error": f"Error processing image data: {e}"}), 400
 
-    # Construct the command
-    command = ["/usr/local/bin/llama-gemma3-cli"]  # Assuming llama-gemma3-cli is in /usr/local/bin
-    command.extend(["-m", model])
-    command.extend(["--mmproj", mmproj])
-    
-    # Combine all prompts into a single prompt
-    combined_prompt = " ".join(prompts)
-    if combined_prompt:
-        command.extend(["-p", f'"{combined_prompt}"'])
-    
-    # Add all image paths to the command
-    for image_path in image_paths:
-        command.extend(["--image", image_path])
-    
     command.extend(["--log-disable"])
 
     print(f"Executing command: {' '.join(command)}")  # Debugging
