@@ -94,12 +94,24 @@ def extract_ebay_data(url):
         else:
             item_url = 'N/A'
 
+        # Extract image URL
+        img_element = item.find('div', class_='s-item__image-wrapper')
+        if img_element:
+            img = img_element.find('img')
+            if img and img.has_attr('src'):
+                img_url = img['src']
+            else:
+                img_url = 'N/A'
+        else:
+            img_url = 'N/A'
+
         data.append({
             'Item': title,
             'Sold Date': sold_date,
             'Selling Price': price,
             'Delivery Price': delivery_price,
-            'URL': item_url
+            'URL': item_url,
+            'Image URL': img_url
         })
 
     return json.dumps(data, indent=4)
