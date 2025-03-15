@@ -16,8 +16,12 @@ def extract_ebay_data(url):
         str: A JSON array containing the extracted data.
     """
 
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'
+    }
+
     try:
-        response = requests.get(url)
+        response = requests.get(url, headers=headers)
         response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
     except requests.exceptions.RequestException as e:
         print(f"Request error: {e}")
@@ -75,12 +79,27 @@ def extract_ebay_data(url):
             delivery_price = delivery_price.text.strip()
         else:
             delivery_price = 'N/A'
+        
+        # Extract item URL
+        item_link = item.find('a', class_='s-item__link')
+        if item_link and item_link.has_attr('href'):
+            url = item_link['href']
+            # Extract item ID from URL
+            match = re.search(r'itm/(\d+)', url)
+            if match:
+                item_id = match.group(1)
+                item_url = f"https://www.ebay.com/itm/{item_id}"
+            else:
+                item_url = url
+        else:
+            item_url = 'N/A'
 
         data.append({
             'Item': title,
             'Sold Date': sold_date,
             'Selling Price': price,
-            'Delivery Price': delivery_price
+            'Delivery Price': delivery_price,
+            'URL': item_url
         })
 
     return json.dumps(data, indent=4)
