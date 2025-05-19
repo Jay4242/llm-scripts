@@ -36,8 +36,9 @@ def translate_srt(srt_file_path, output_file_path, target_language="French"):
             timecode = lines[1]
             text = '\n'.join(lines[2:])
 
-            # Translate the text using the language model
-            translated_text = translate_text(text, target_language)
+            # Translate the text line by line and preserve newlines
+            translated_lines = [translate_text(line, target_language) for line in text.splitlines()]
+            translated_text = '\n'.join(translated_lines)
 
             # Create a new translated entry
             translated_entry = f"{index}\n{timecode}\n{translated_text}"
