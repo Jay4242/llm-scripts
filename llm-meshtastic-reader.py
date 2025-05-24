@@ -6,6 +6,8 @@ import sys
 import time
 from openai import OpenAI
 import httpx
+from datetime import datetime
+import signal
 
 # LLM Configuration - adjust these as needed
 LLM_BASE_URL = "http://localhost:9090/v1"
@@ -35,9 +37,14 @@ def onReceive(packet, interface):
                 print("No text found in decoded payload.")
                 return
 
-            # Construct the messages for the LLM
+            # Get the current date and time
+            now = datetime.now()
+            current_time = now.strftime("%Y-%m-%d %A %H:%M:%S")
+
+            # Construct the messages for the LLM, including the current time in the system prompt
+            system_prompt = f"{LLM_SYSTEM_PROMPT} The current date and time is: {current_time}."
             messages = [
-                {"role": "system", "content": LLM_SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": LLM_PREPROMPT},
                 {"role": "user", "content": received_text},
                 {"role": "user", "content": LLM_POSTPROMPT}
@@ -86,5 +93,11 @@ except Exception as e:
     sys.exit(1)
 
 # Keep the script running to receive messages
-while True:
-    time.sleep(1)
+try:
+    while True:
+        time.sleep(1)
+except KeyboardInterrupt:
+    print("Ctrl+C detected. Closing connection...")
+    interface.close()
+    print("Connection closed. Exiting.")
+    sys.exit(0)
