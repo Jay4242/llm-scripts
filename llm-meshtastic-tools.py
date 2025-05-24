@@ -11,6 +11,7 @@ import subprocess
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import json
+import random
 
 # LLM Configuration - adjust these as needed
 LLM_BASE_URL = "http://localhost:9090/v1"  # Base URL for regular LLM
@@ -38,6 +39,10 @@ TOOLS = {
     "chat": {
         "description": "This tool sends the message to a language model and returns the response.",
         "function": lambda input: get_llm_response(input)
+    },
+    "numbers_station": {
+        "description": "This tool returns a string of random numbers, like a numbers station.",
+        "function": lambda input: ''.join(random.choice('0123456789') for _ in range(200))
     }
 }
 
@@ -134,6 +139,7 @@ def onReceive(packet, interface):
 
             # Select a tool based on the received text
             tool_name, error_message = select_tool(received_text, TOOLS)
+            print(f"Selected tool: {tool_name}")  # Debug print
             if error_message:
                 response_text = error_message
             else:
