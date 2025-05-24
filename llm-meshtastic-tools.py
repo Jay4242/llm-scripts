@@ -31,10 +31,6 @@ TOOLS = {
         "description": "This tool returns system information, such as CPU usage, memory usage, and uptime.",
         "function": lambda input: subprocess.check_output(["uptime"]).decode("utf-8")
     },
-    "network_info": {
-        "description": "This tool returns network information, such as IP address and connected devices.",
-        "function": lambda input: subprocess.check_output(["ip", "addr"]).decode("utf-8")
-    },
     "weather_report": {
         "description": "This tool returns weather information.",
         "function": lambda input: subprocess.check_output(["llm-mesh-weather.bash"]).decode("utf-8")
@@ -180,5 +176,11 @@ except Exception as e:
     sys.exit(1)
 
 # Keep the script running to receive messages
-while True:
-    time.sleep(1)
+try:
+    while True:
+        time.sleep(1)
+except KeyboardInterrupt:
+    print("Ctrl+C detected. Closing connection...")
+    interface.close()
+    print("Connection closed. Exiting.")
+    sys.exit(0)
