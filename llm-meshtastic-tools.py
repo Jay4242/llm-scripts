@@ -17,9 +17,9 @@ LLM_BASE_URL = "http://localhost:9090/v1"  # Base URL for regular LLM
 EMBEDDING_BASE_URL = "http://localhost:9494/v1" # Base URL for embedding LLM
 LLM_API_KEY = "none"
 LLM_MODEL = "gemma-3-4b-it-q8_0"  # Using embedding model
-LLM_SYSTEM_PROMPT = """You are a helpful assistant."""
-LLM_PREPROMPT = "The user says:\n"
-LLM_POSTPROMPT = ""
+LLM_SYSTEM_PROMPT = """You are a helpful assistant responding to Meshtastic text messages."""
+LLM_PREPROMPT = "The user says: "
+LLM_POSTPROMPT = "Respond to the user."
 LLM_TEMPERATURE = 0.7
 LLM_TIMEOUT = 3600
 
@@ -38,6 +38,10 @@ TOOLS = {
     "weather_report": {
         "description": "This tool returns weather information.",
         "function": lambda input: subprocess.check_output(["llm-mesh-weather.bash"]).decode("utf-8")
+    },
+    "chat": {
+        "description": "This tool sends the message to a language model and returns the response.",
+        "function": lambda input: get_llm_response(input)
     }
 }
 
@@ -55,6 +59,37 @@ def get_embedding(text):
     except Exception as e:
         logging.error(f"Error generating embedding: {e}")
         return None
+
+def get_llm_response(user_message):
+    """
+    Sends the user message to the LLM and returns the response.
+    """
+    try:
+        client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=httpx.Timeout(LLM_TIMEOUT))
+        
+        # Get the current date and time
+        now = datetime.now()
+        current_time = now.strftime("%Y-%m-%d %A %H:%M:%S")
+
+        # Construct the messages for the LLM, including the current time in the system prompt
+        system_prompt = f"{LLM_SYSTEM_PROMPT} The current date and time is: {current_time}."
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": LLM_PREPROMPT},
+            {"role": "user", "content": user_message},
+            {"role": "user", "content": LLM_POSTPROMPT}
+        ]
+        
+        completion = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            temperature=LLM_TEMPERATURE,
+        )
+        response_text = completion.choices[0].message.content.strip()
+        return response_text
+    except Exception as e:
+        logging.error(f"Error during LLM processing: {e}")
+        return f"Error processing message: {e}"
 
 def select_tool(user_message, tools):
     """
