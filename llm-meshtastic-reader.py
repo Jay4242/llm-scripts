@@ -11,11 +11,13 @@ import httpx
 LLM_BASE_URL = "http://localhost:9090/v1"
 LLM_API_KEY = "none"
 LLM_MODEL = "gemma-3-4b-it-q8_0"
-LLM_SYSTEM_PROMPT = "You are a helpful assistant responding to Meshtastic text messages.  It's vital you keep your messages short and concise, one to two sentences at most."
+LLM_SYSTEM_PROMPT = "You are a helpful assistant responding to Meshtastic text messages."
 LLM_PREPROMPT = "The user says: "
 LLM_POSTPROMPT = "Respond to the user."
 LLM_TEMPERATURE = 0.7
 LLM_TIMEOUT = 3600
+
+MAX_MESSAGE_LENGTH = 200  # Maximum characters per message
 
 def onReceive(packet, interface):
     """
@@ -54,9 +56,16 @@ def onReceive(packet, interface):
                 logging.error(f"Error during LLM processing: {e}")
                 response_text = f"Error processing message: {e}"
 
-            # Send the LLM's response back to the sender
-            interface.sendText(response_text, destinationId=packet["from"])
-            print(f"Sent response: {response_text}")
+            # Split the LLM's response into multiple messages if it's too long
+            while len(response_text) > 0:
+                chunk = response_text[:MAX_MESSAGE_LENGTH]
+                response_text = response_text[MAX_MESSAGE_LENGTH:]
+
+                # Send the chunk back to the sender
+                print(f"Sending response chunk: {chunk}")  # Debug print
+                interface.sendText(chunk, destinationId=packet["from"])
+                print(f"Sent response chunk: {chunk}")
+
     except Exception as e:
         logging.error(f"Error in onReceive: {e}")
 
