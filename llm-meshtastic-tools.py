@@ -29,19 +29,19 @@ MAX_MESSAGE_LENGTH = 200  # Maximum characters per message
 # Define the tools and their descriptions
 TOOLS = {
     "system_info": {
-        "description": "This tool returns system information, such as CPU usage, memory usage, and uptime.",
+        "description": "System information, such as CPU usage, memory usage, and uptime.",
         "function": lambda input: subprocess.check_output(["uptime"]).decode("utf-8")
     },
     "weather_report": {
-        "description": "This tool returns weather information.",
+        "description": "Weather Report",
         "function": lambda input: subprocess.check_output(["llm-mesh-weather.bash"]).decode("utf-8")
     },
     "chat": {
-        "description": "This tool sends the message to a language model and returns the response.",
+        "description": "General chat.  Good for jokes.  Advice.  Etc. 👍",
         "function": lambda input: get_llm_response(input)
     },
     "numbers_station": {
-        "description": "This tool returns a string of random numbers, like a numbers station.",
+        "description": "Random numbers, like a numbers station.",
         "function": lambda input: ''.join(random.choice('0123456789') for _ in range(200))
     }
 }
