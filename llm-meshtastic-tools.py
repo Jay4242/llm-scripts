@@ -29,19 +29,19 @@ MAX_MESSAGE_LENGTH = 200  # Maximum characters per message
 # Define the tools and their descriptions
 TOOLS = {
     "system_info": {
-        "description": "System information, such as CPU usage, memory usage, and uptime.",
+        "description": "Prints system information, such as CPU usage, memory usage, and uptime.",
         "function": lambda input: subprocess.check_output(["uptime"]).decode("utf-8")
     },
     "weather_report": {
-        "description": "Weather Report",
+        "description": "Gives a local Weather Report",
         "function": lambda input: subprocess.check_output(["llm-mesh-weather.bash"]).decode("utf-8")
     },
     "chat": {
-        "description": "General chat.  Good for jokes.  Advice.  Etc. 👍",
+        "description": "General chat.  Good for jokes.  Advice.  Etc. 👍 really anything not covered by the other tools.",
         "function": lambda input: get_llm_response(input)
     },
     "numbers_station": {
-        "description": "Random numbers, like a numbers station.",
+        "description": "Responds with random numbers, like a numbers station.",
         "function": lambda input: ''.join(random.choice('0123456789') for _ in range(200))
     }
 }
@@ -116,6 +116,10 @@ def select_tool(user_message, tools):
         tool_name = completion.choices[0].message.content.strip()
 
         logging.debug(f"LLM returned tool name: {tool_name}")
+        logging.debug(f"LLM raw output: {completion.choices[0].message.content}")
+
+        # Print the LLM output here
+        print(f"LLM Output: {completion.choices[0].message.content}")
 
         # Step 2: Validate the tool name using embeddings
         if tool_name not in tools:
