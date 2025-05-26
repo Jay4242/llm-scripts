@@ -3,6 +3,7 @@
 import sys
 from openai import OpenAI
 import webbrowser
+import base64
 
 def main():
     # Check for the correct number of arguments
@@ -59,12 +60,14 @@ def main():
 </html>
 """
 
-        with open("diagram.html", "w") as f:
-            f.write(html_content)
+        # Encode the HTML content to base64
+        html_content_encoded = base64.b64encode(html_content.encode('utf-8')).decode('utf-8')
 
-        print("Generated diagram.html")
+        # Create the data URI
+        data_uri = f"data:text/html;base64,{html_content_encoded}"
 
-        webbrowser.open("diagram.html")
+        print("Opening diagram in browser")
+        webbrowser.open(data_uri)
 
     except Exception as e:
         print(f"Error: {e}")
