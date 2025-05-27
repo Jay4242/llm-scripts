@@ -5,9 +5,10 @@ from openai import OpenAI
 import base64
 import sys
 import os
+import httpx
 
 # Point to the local server
-client = OpenAI(base_url="http://localhost:9090/v1", api_key="none")
+client = OpenAI(base_url="http://localhost:9090/v1", api_key="none", timeout=httpx.Timeout(3600))
 
 # Model selection
 model = "gemma3:4b-it-q8_0"
