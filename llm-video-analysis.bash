@@ -5,24 +5,30 @@ rm -rf /dev/shm/llm-video-analysis/*
 
 mkdir -p /dev/shm/llm-video-analysis/ || exit 1
 temp_dir=/dev/shm/llm-video-analysis/
-video_url=$1
 
 # Option to process all frames at once
 all_frames=false
 
 # Parse command-line arguments
-while [[ $# -gt 1 ]]; do
+while [[ $# -gt 0 ]]; do
   case "$1" in
     -a|--all-frames)
       all_frames=true
       shift
       ;;
     *)
-      echo "Unknown option: $1"
-      exit 1
+      video_url=$1
+      shift
+      break
       ;;
   esac
 done
+
+# Check if video_url is empty
+if [ -z "$video_url" ]; then
+  echo "Usage: $0 [-a|--all-frames] <video_url>"
+  exit 1
+fi
 
 # Download the video and get the title
 yt-dlp --no-warnings -q -o "${temp_dir}/video.%(ext)s" "${video_url}" || exit 1
@@ -30,7 +36,7 @@ title=$(yt-dlp --no-warnings -q --get-title "${video_url}")
 video="${temp_dir}/video.$(echo $(ls ${temp_dir}/video.* | cut -d '.' -f 2) )"
 
 # Extract frames from the video
-ffmpeg -i "${video}" -vf "fps=1" "${temp_dir}/frame_%04d.jpg"
+ffmpeg -i "${video}" -vf "fps=2" "${temp_dir}/frame_%04d.jpg"
 
 # Set the prompt
 prompt="Describe what is happening in this series of images. The video title is: ${title}"
@@ -53,13 +59,13 @@ if $all_frames; then
   echo "Frames 1-${num_images}:" >> "$output_file"
   echo "$output" >> "$output_file"
 else
-  # Loop through the images in batches of 5
+  # Loop through the images in batches of 10
   images=(${temp_dir}/frame_*.jpg)
   num_images=${#images[@]}
 
-  for ((i=0; i<num_images; i+=5)); do
-    # Create a sub-array of up to 5 images
-    subset=("${images[@]:i:5}")
+  for ((i=0; i<num_images; i+=10)); do
+    # Create a sub-array of up to 10 images
+    subset=("${images[@]:i:10}")
 
     # Get the starting and ending frame numbers
     start_frame=$((i + 1))
