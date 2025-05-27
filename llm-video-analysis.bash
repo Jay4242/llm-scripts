@@ -9,11 +9,21 @@ temp_dir=/dev/shm/llm-video-analysis/
 # Option to process all frames at once
 all_frames=false
 
+# Option to process by scene change
+scene_change=false
+
+# Scene change threshold
+scene_threshold=0.3
+
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -a|--all-frames)
       all_frames=true
+      shift
+      ;;
+    -s|--scene-change)
+      scene_change=true
       shift
       ;;
     *)
@@ -26,17 +36,23 @@ done
 
 # Check if video_url is empty
 if [ -z "$video_url" ]; then
-  echo "Usage: $0 [-a|--all-frames] <video_url>"
+  echo "Usage: $0 [-a|--all-frames] [-s|--scene-change] <video_url>"
   exit 1
 fi
 
 # Download the video and get the title
-yt-dlp --no-warnings -q -o "${temp_dir}/video.%(ext)s" "${video_url}" || exit 1
+yt-dlp --no-warnings -q -f "bestvideo[height<=720]+bestaudio/best[height<=720]" -o "${temp_dir}/video.%(ext)s" "${video_url}" || exit 1
 title=$(yt-dlp --no-warnings -q --get-title "${video_url}")
 video="${temp_dir}/video.$(echo $(ls ${temp_dir}/video.* | cut -d '.' -f 2) )"
 
 # Extract frames from the video
-ffmpeg -i "${video}" -vf "fps=2" "${temp_dir}/frame_%04d.jpg"
+if $scene_change; then
+  # Extract scene frames
+  ffmpeg -i "${video}" -vf "select='gt(scene,${scene_threshold})',showinfo" -vsync vfr "${temp_dir}/frame_%04d.jpg"
+else
+  # Extract frames at a fixed rate
+  ffmpeg -i "${video}" -vf "fps=2" "${temp_dir}/frame_%04d.jpg"
+fi
 
 # Set the prompt
 prompt="Describe what is happening in this series of images. The video title is: ${title}"
@@ -82,8 +98,8 @@ fi
 
 # Summarize the output file using llm-python-file.py
 system_prompt="You are a helpful assistant."
-preprompt="The following is a summary of a series of frames of video:"
-postprompt="Create one cohesive summarry of these events."
+preprompt="The following is a summary of a series of frames of video ${title}:"
+postprompt="Create one cohesive summarry of these events from the video"
 temperature="0.7"
 
 llm-python-file.py "$output_file" "$system_prompt" "$preprompt" "$postprompt" "$temperature"
