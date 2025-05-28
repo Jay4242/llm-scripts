@@ -6,6 +6,7 @@ import base64
 import sys
 import os
 import httpx
+import re
 
 # Point to the local server
 client = OpenAI(base_url="http://localhost:9090/v1", api_key="none", timeout=httpx.Timeout(3600))
@@ -16,11 +17,26 @@ model = "gemma3:4b-it-q8_0"
 # Retrieve the image paths from the remaining arguments
 image_paths = sys.argv[2:]
 
-# Create a list of filenames from the image paths
-image_filenames = [os.path.basename(path) for path in image_paths]
+# Extract frame numbers from image paths
+frame_numbers = []
+for path in image_paths:
+    match = re.search(r'frame_(\d+)\.jpg', path)
+    if match:
+        frame_numbers.append(int(match.group(1)))
+    else:
+        print(f"Could not extract frame number from {path}.  Exiting.")
+        exit()
+
+# Determine the image range
+if frame_numbers:
+    start_frame = min(frame_numbers)
+    end_frame = max(frame_numbers)
+    image_range = f"{start_frame}-{end_frame}"
+else:
+    image_range = "No images found"
 
 # Retrieve the prompt from the arguments
-prompt = sys.argv[1] + f" The images are: {', '.join(image_filenames)}"
+prompt = sys.argv[1] + f" The images are frames {image_range}"
 
 # Prepare the messages for the LLM
 messages = [
