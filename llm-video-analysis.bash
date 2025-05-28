@@ -15,6 +15,9 @@ scene_change=false
 # Scene change threshold
 scene_threshold=0.3
 
+# Option to download subtitles
+subtitles=false
+
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,6 +27,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -s|--scene-change)
       scene_change=true
+      shift
+      ;;
+    -ss|--subtitles)
+      subtitles=true
       shift
       ;;
     *)
@@ -36,14 +43,19 @@ done
 
 # Check if video_url is empty
 if [ -z "$video_url" ]; then
-  echo "Usage: $0 [-a|--all-frames] [-s|--scene-change] <video_url>"
+  echo "Usage: $0 [-a|--all-frames] [-s|--scene-change] [-ss|--subtitles] <video_url>"
   exit 1
 fi
 
 # Download the video and get the title
 yt-dlp --no-warnings --cookies-from-browser chrome -q -f "bestvideo[height<=720]+bestaudio/best[height<=720]" -o "${temp_dir}/video.%(ext)s" "${video_url}" || exit 1
-title=$(yt-dlp --no-warnings -q --get-title "${video_url}")
+title=$(yt-dlp --no-warnings -q --cookies-from-browser chrome --get-title "${video_url}")
 video="${temp_dir}/video.$(echo $(ls ${temp_dir}/video.* | cut -d '.' -f 2) )"
+
+# Download subtitles if the option is enabled
+if $subtitles; then
+  yt-dlp --no-warnings --cookies-from-browser chrome -q --write-auto-subs --sub-format vtt -o "${temp_dir}/video.%(ext)s" "${video_url}" || echo "Subtitle download failed, continuing without subtitles."
+fi
 
 # Extract frames from the video
 if $scene_change; then
