@@ -41,7 +41,7 @@ if [ -z "$video_url" ]; then
 fi
 
 # Download the video and get the title
-yt-dlp --no-warnings -q -f "bestvideo[height<=720]+bestaudio/best[height<=720]" -o "${temp_dir}/video.%(ext)s" "${video_url}" || exit 1
+yt-dlp --no-warnings --cookies-from-browser chrome -q -f "bestvideo[height<=720]+bestaudio/best[height<=720]" -o "${temp_dir}/video.%(ext)s" "${video_url}" || exit 1
 title=$(yt-dlp --no-warnings -q --get-title "${video_url}")
 video="${temp_dir}/video.$(echo $(ls ${temp_dir}/video.* | cut -d '.' -f 2) )"
 
