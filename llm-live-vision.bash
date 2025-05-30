@@ -11,7 +11,7 @@ while sleep 1 ; do
   ffmpeg -v quiet -y -i $(yt-dlp -g "$(xclip -o -selection clipboard)") -frames:v 1 -q:v 3 /dev/shm/output.jpg && \
   # Use llm-python-vision.py to analyze the image and generate a text description based on the prompt
   # The output is piped to tee to save it to /dev/shm/output.txt and also pass it to the next command
-  llm-python-vision.py /dev/shm/output.jpg "${prompt}" | tee /dev/shm/output.txt
+  llm-python-vision-ollama.py /dev/shm/output.jpg "${prompt}" | tee /dev/shm/output.txt
   # Open the image in ristretto
   ristretto /dev/shm/output.jpg &
   # Store the process ID of ristretto
