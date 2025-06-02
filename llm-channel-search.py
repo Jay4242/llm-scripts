@@ -90,28 +90,34 @@ def search_channel(channel_url, search_query, llm_mode=False):
                     if subtitles_srv3:
                         subtitles = parse_srv3(subtitles_srv3)
                         if subtitles:
-                            all_text = "\n".join([entry['text'] for entry in subtitles if entry['text'].strip()])
-                            if all_text:
-                                if llm_mode:
-                                    # Use llm-python-file.py to check relevance
-                                    command = [
-                                        "/usr/local/bin/llm-python-file.py",
-                                        "-",  # Read from stdin
-                                        "You are a helpful assistant.",
-                                        f"The following is a youtube video transcription.",
-                                        f"Does this help answer the question or topic of `{search_query}`? Start your answer with `Yes` or `No`.",
-                                        "0.0"
-                                    ]
-                                    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                                    stdout, stderr = process.communicate(input=all_text)
-                                    if "Yes" in stdout:
-                                        print(f"LLM Match: {video_url}")
-                                else:
-                                    # Simple grep-like search
-                                    if search_query.lower() in all_text.lower():
-                                        print(f"Grep Match: {video_url}")
+                            for sub in subtitles:
+                                text = sub['text']
+                                if text.strip():
+                                    if search_query.lower() in text.lower():
+                                        if llm_mode:
+                                            # Use llm-python-file.py to check relevance
+                                            command = [
+                                                "/usr/local/bin/llm-python-file.py",
+                                                "-",  # Read from stdin
+                                                "You are a helpful assistant.",
+                                                f"The following is a youtube video transcription.",
+                                                f"Does this help answer the question or topic of `{search_query}`? Start your answer with `Yes` or `No`.",
+                                                "0.0"
+                                            ]
+                                            process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                                            stdout, stderr = process.communicate(input=text)
+                                            if "Yes" in stdout:
+                                                print(f"LLM Match: {video_url}")
+                                                print(f"  Matched Text: {text}")
+                                        else:
+                                            # Simple grep-like search
+                                            print(f"Grep Match: {video_url}")
+                                            print(f"  Matched Text: {text}")
     except Exception as e:
         print(f"An error occurred: {e}")
+    except KeyboardInterrupt:
+        print("\nExiting program.")
+        sys.exit(0)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Search YouTube channel videos using subtitles.")
