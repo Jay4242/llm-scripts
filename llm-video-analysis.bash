@@ -26,6 +26,9 @@ use_cookies=false
 # Option to skip title extraction
 no_title=false
 
+# Option for interactive prompting
+interactive_prompt=false
+
 # Fixed frame rate
 frame_rate=2
 
@@ -55,6 +58,10 @@ while [[ $# -gt 0 ]]; do
       no_title=true
       shift
       ;;
+    -p|--prompt) # New flag for interactive prompting
+      interactive_prompt=true
+      shift
+      ;;
     *)
       video_url=$1
       shift
@@ -65,7 +72,7 @@ done
 
 # Check if video_url is empty
 if [ -z "$video_url" ]; then
-  echo "Usage: $0 [-a|--all-frames] [-s|--scene-change] [-ss|--subtitles] [-c|--cookies] [-nt|--no-title] <video_url>"
+  echo "Usage: $0 [-a|--all-frames] [-s|--scene-change] [-ss|--subtitles] [-c|--cookies] [-nt|--no-title] [-p|--prompt] <video_url>"
   exit 1
 fi
 
@@ -114,15 +121,8 @@ else
   ffmpeg -i "${video}" -vf "fps=${frame_rate}" "${temp_dir}/frame_%04d.jpg"
 fi
 
-# Define summarization prompts and temperature (moved up)
+# Define summarization prompts and temperature
 system_prompt="You are a helpful assistant."
-preprompt="The following is a summary of a series of frames of video"
-if [ -n "$title" ]; then
-  preprompt+=" ${title}:"
-else
-  preprompt+=":"
-fi
-postprompt="Create one cohesive summary of these events from the video"
 temperature="0.7"
 
 # Set the base visual description prompt
@@ -132,88 +132,181 @@ if [ -n "$title" ]; then
 fi
 visual_description_prompt_base+=" Focus only on describing the visual elements present in the frames."
 
-# Determine the final prompt based on --all-frames
-if $all_frames; then
-  # When --all-frames is used, combine summarization prompts with the visual description
-  # The system prompt is handled by the python script, so we only combine user-facing parts.
-  prompt="${preprompt} ${visual_description_prompt_base} ${postprompt}"
-else
-  # When not --all-frames, use the standard visual description prompt
-  prompt="${visual_description_prompt_base}"
-fi
-
 # Output file
 output_file="${temp_dir}/analysis_output.txt"
 
-# Clear the output file
-> "$output_file"
+# --- Start of conditional logic for interactive vs. non-interactive mode ---
 
-# Process all frames at once
-if $all_frames; then
-  images=(${temp_dir}/frame_*.jpg)
-  num_images=${#images[@]}
+if $interactive_prompt; then
+  preprompt="The following are frames from a video"
+  while true; do
+    echo -n "Enter your prompt (or 'quit'/'exit' or blank line to finish): "
+    read -r user_postprompt
+    user_postprompt=$(echo "$user_postprompt" | xargs) # Trim whitespace
 
-  # Calculate start and end times for the entire video
-  start_time=0
-  end_time=$(echo "($num_images / $frame_rate)" | bc)
-
-  current_python_script="llm-python-vision-multi-images.py" # Default script
-  current_subtitle_arg=""
-  temp_subtitle_file="" # Initialize to empty
-
-  if $subtitles && [ -n "$subtitle_file" ]; then # Only proceed if subtitles are enabled and a main subtitle file was found
-    temp_subtitle_file="${temp_dir}/temp_subtitles.vtt"
-    ffmpeg -i "${subtitle_file}" -ss ${start_time} -to ${end_time} -c copy "${temp_subtitle_file}" 2>/dev/null
-
-    # Check if the temp_subtitle_file exists and has content (more than 2 lines for VTT header)
-    if [ -s "$temp_subtitle_file" ] && [ $(wc -l < "$temp_subtitle_file") -gt 2 ]; then
-      current_subtitle_arg="$temp_subtitle_file"
-      current_python_script="llm-python-vision-multi-images-file.py"
-    else
-      # If temp subtitle file is empty or failed, revert to the non-file script
-      rm -f "$temp_subtitle_file" # Clean up if it was created but empty
-      temp_subtitle_file="" # Ensure it's empty for cleanup later
+    if [[ -z "$user_postprompt" || "$user_postprompt" == "quit" || "$user_postprompt" == "exit" ]]; then
+      echo "Exiting interactive prompt."
+      break
     fi
+    postprompt="$user_postprompt"
+
+    # Clear the output file for each new prompt
+    > "$output_file"
+
+    # Determine the final prompt based on --all-frames and the current postprompt
+    if $all_frames; then
+      prompt="${preprompt} ${visual_description_prompt_base} ${postprompt}"
+    else
+      # When not --all-frames, use the standard visual description prompt for individual batches
+      # The postprompt will be used in the final summarization step.
+      prompt="${visual_description_prompt_base}"
+    fi
+
+    # Process all frames at once (if --all-frames)
+    if $all_frames; then
+      images=(${temp_dir}/frame_*.jpg)
+      num_images=${#images[@]}
+
+      # Calculate start and end times for the entire video
+      start_time=0
+      end_time=$(echo "($num_images / $frame_rate)" | bc)
+
+      current_python_script="llm-python-vision-multi-images.py" # Default script
+      current_subtitle_arg=""
+      temp_subtitle_file="" # Initialize to empty
+
+      if $subtitles && [ -n "$subtitle_file" ]; then # Only proceed if subtitles are enabled and a main subtitle file was found
+        temp_subtitle_file="${temp_dir}/temp_subtitles.vtt"
+        ffmpeg -i "${subtitle_file}" -ss ${start_time} -to ${end_time} -c copy "${temp_subtitle_file}" 2>/dev/null
+
+        # Check if the temp_subtitle_file exists and has content (more than 2 lines for VTT header)
+        if [ -s "$temp_subtitle_file" ] && [ $(wc -l < "$temp_subtitle_file") -gt 2 ]; then
+          current_subtitle_arg="$temp_subtitle_file"
+          current_python_script="llm-python-vision-multi-images-file.py"
+        else
+          # If temp subtitle file is empty or failed, revert to the non-file script
+          rm -f "$temp_subtitle_file" # Clean up if it was created but empty
+          temp_subtitle_file="" # Ensure it's empty for cleanup later
+        fi
+      fi
+
+      # Construct the command arguments
+      cmd_args=("$prompt") # Use the conditionally set 'prompt'
+      if [ -n "$current_subtitle_arg" ]; then
+        cmd_args+=("$current_subtitle_arg")
+      fi
+      cmd_args+=("${images[@]}")
+
+      echo "Sending frames 1-${num_images} to LLM..." >&2 # Debugging output
+
+      # Call the appropriate python script
+      output=$($current_python_script "${cmd_args[@]}")
+
+      # Append the frame numbers and the output to the output file
+      echo "Frames 1-${num_images}:" >> "$output_file"
+      echo "$output" >> "$output_file"
+
+      # Clean up temporary subtitle file if it was created
+      if [ -n "$temp_subtitle_file" ]; then
+        rm -f "$temp_subtitle_file"
+      fi
+
+    else # This is the original batch processing logic
+      # Loop through the images in batches
+      images=(${temp_dir}/frame_*.jpg)
+      num_images=${#images[@]}
+
+      for ((i=0; i<num_images; i+=$frames_per_batch)); do
+        # Create a sub-array of images
+        subset=("${images[@]:i:$frames_per_batch}")
+        num_subset=${#subset[@]}
+
+        # Get the starting and ending frame numbers
+        start_frame=$((i + 1))
+        end_frame=$((i + $num_subset))
+
+        # Calculate the start and end times in seconds
+        start_time=$(echo "($start_frame - 1) / $frame_rate" | bc)
+        end_time=$(echo "$end_frame / $frame_rate" | bc)
+
+        current_python_script="llm-python-vision-multi-images.py" # Default script
+        current_subtitle_arg=""
+        temp_subtitle_file="" # Initialize to empty
+
+        if $subtitles && [ -n "$subtitle_file" ]; then # Only proceed if subtitles are enabled and a main subtitle file was found
+          temp_subtitle_file="${temp_dir}/temp_subtitles.vtt"
+          ffmpeg -i "${subtitle_file}" -ss ${start_time} -to ${end_time} -c copy "${temp_subtitle_file}" 2>/dev/null
+
+          # Check if the temp_subtitle_file exists and has content (more than 2 lines for VTT header)
+          if [ -s "$temp_subtitle_file" ] && [ $(wc -l < "$temp_subtitle_file") -gt 2 ]; then
+            current_subtitle_arg="$temp_subtitle_file"
+            current_python_script="llm-python-vision-multi-images-file.py"
+          else
+            rm -f "$temp_subtitle_file"
+            temp_subtitle_file=""
+          fi
+        fi
+
+        # Construct the command arguments
+        cmd_args=("$prompt") # Use the conditionally set 'prompt'
+        if [ -n "$current_subtitle_arg" ]; then
+          cmd_args+=("$current_subtitle_arg")
+        fi
+        cmd_args+=("${subset[@]}")
+
+        echo "Sending frames ${start_frame}-${end_frame} to LLM..." >&2 # Debugging output
+
+        # Call the appropriate python script
+        output=$($current_python_script "${cmd_args[@]}")
+
+        # Append the frame numbers and the output to the output file
+        echo "Frames ${start_frame}-${end_frame}:" >> "$output_file"
+        echo "$output" >> "$output_file"
+
+        # Clean up temporary subtitle file if it was created
+        if [ -n "$temp_subtitle_file" ]; then
+          rm -f "$temp_subtitle_file"
+        fi
+      done
+    fi
+
+    # Summarize the output file using llm-python-file.py (only if not --all-frames)
+    if ! $all_frames; then
+      llm-python-file.py "$output_file" "$system_prompt" "$preprompt" "$postprompt" "$temperature"
+    fi
+    echo "" # Add a newline for better readability between prompts
+  done # End of while true loop for interactive prompt
+else # Original non-interactive processing
+  # Define preprompt and postprompt for non-interactive mode
+  preprompt="The following is a summary of a series of frames of video"
+  if [ -n "$title" ]; then
+    preprompt+=" ${title}:"
+  else
+    preprompt+=":"
+  fi
+  postprompt="Create one cohesive summary of these events from the video"
+
+  # Determine the final prompt based on --all-frames
+  if $all_frames; then
+    # When --all-frames is used, combine summarization prompts with the visual description
+    # The system prompt is handled by the python script, so we only combine user-facing parts.
+    prompt="${preprompt} ${visual_description_prompt_base} ${postprompt}"
+  else
+    # When not --all-frames, use the standard visual description prompt
+    prompt="${visual_description_prompt_base}"
   fi
 
-  # Construct the command arguments
-  cmd_args=("$prompt") # Use the conditionally set 'prompt'
-  if [ -n "$current_subtitle_arg" ]; then
-    cmd_args+=("$current_subtitle_arg")
-  fi
-  cmd_args+=("${images[@]}")
+  # Clear the output file (only once for non-interactive mode)
+  > "$output_file"
 
-  echo "Sending frames 1-${num_images} to LLM..." >&2 # Debugging output
+  # Process all frames at once
+  if $all_frames; then
+    images=(${temp_dir}/frame_*.jpg)
+    num_images=${#images[@]}
 
-  # Call the appropriate python script
-  output=$($current_python_script "${cmd_args[@]}")
-
-  # Append the frame numbers and the output to the output file
-  echo "Frames 1-${num_images}:" >> "$output_file"
-  echo "$output" >> "$output_file"
-
-  # Clean up temporary subtitle file if it was created
-  if [ -n "$temp_subtitle_file" ]; then
-    rm -f "$temp_subtitle_file"
-  fi
-
-else # This is the original batch processing logic
-  # Loop through the images in batches
-  images=(${temp_dir}/frame_*.jpg)
-  num_images=${#images[@]}
-
-  for ((i=0; i<num_images; i+=$frames_per_batch)); do
-    # Create a sub-array of images
-    subset=("${images[@]:i:$frames_per_batch}")
-    num_subset=${#subset[@]}
-
-    # Get the starting and ending frame numbers
-    start_frame=$((i + 1))
-    end_frame=$((i + $num_subset))
-
-    # Calculate the start and end times in seconds
-    start_time=$(echo "($start_frame - 1) / $frame_rate" | bc)
-    end_time=$(echo "$end_frame / $frame_rate" | bc)
+    # Calculate start and end times for the entire video
+    start_time=0
+    end_time=$(echo "($num_images / $frame_rate)" | bc)
 
     current_python_script="llm-python-vision-multi-images.py" # Default script
     current_subtitle_arg=""
@@ -228,8 +321,9 @@ else # This is the original batch processing logic
         current_subtitle_arg="$temp_subtitle_file"
         current_python_script="llm-python-vision-multi-images-file.py"
       else
-        rm -f "$temp_subtitle_file"
-        temp_subtitle_file=""
+        # If temp subtitle file is empty or failed, revert to the non-file script
+        rm -f "$temp_subtitle_file" # Clean up if it was created but empty
+        temp_subtitle_file="" # Ensure it's empty for cleanup later
       fi
     fi
 
@@ -238,25 +332,83 @@ else # This is the original batch processing logic
     if [ -n "$current_subtitle_arg" ]; then
       cmd_args+=("$current_subtitle_arg")
     fi
-    cmd_args+=("${subset[@]}")
+    cmd_args+=("${images[@]}")
 
-    echo "Sending frames ${start_frame}-${end_frame} to LLM..." >&2 # Debugging output
+    echo "Sending frames 1-${num_images} to LLM..." >&2 # Debugging output
 
     # Call the appropriate python script
     output=$($current_python_script "${cmd_args[@]}")
 
     # Append the frame numbers and the output to the output file
-    echo "Frames ${start_frame}-${end_frame}:" >> "$output_file"
+    echo "Frames 1-${num_images}:" >> "$output_file"
     echo "$output" >> "$output_file"
 
     # Clean up temporary subtitle file if it was created
     if [ -n "$temp_subtitle_file" ]; then
       rm -f "$temp_subtitle_file"
     fi
-  done
-fi
 
-# Summarize the output file using llm-python-file.py (only if not --all-frames)
-if ! $all_frames; then
-  llm-python-file.py "$output_file" "$system_prompt" "$preprompt" "$postprompt" "$temperature"
-fi
+  else # This is the original batch processing logic
+    # Loop through the images in batches
+    images=(${temp_dir}/frame_*.jpg)
+    num_images=${#images[@]}
+
+    for ((i=0; i<num_images; i+=$frames_per_batch)); do
+      # Create a sub-array of images
+      subset=("${images[@]:i:$frames_per_batch}")
+      num_subset=${#subset[@]}
+
+      # Get the starting and ending frame numbers
+      start_frame=$((i + 1))
+      end_frame=$((i + $num_subset))
+
+      # Calculate the start and end times in seconds
+      start_time=$(echo "($start_frame - 1) / $frame_rate" | bc)
+      end_time=$(echo "$end_frame / $frame_rate" | bc)
+
+      current_python_script="llm-python-vision-multi-images.py" # Default script
+      current_subtitle_arg=""
+      temp_subtitle_file="" # Initialize to empty
+
+      if $subtitles && [ -n "$subtitle_file" ]; then # Only proceed if subtitles are enabled and a main subtitle file was found
+        temp_subtitle_file="${temp_dir}/temp_subtitles.vtt"
+        ffmpeg -i "${subtitle_file}" -ss ${start_time} -to ${end_time} -c copy "${temp_subtitle_file}" 2>/dev/null
+
+        # Check if the temp_subtitle_file exists and has content (more than 2 lines for VTT header)
+        if [ -s "$temp_subtitle_file" ] && [ $(wc -l < "$temp_subtitle_file") -gt 2 ]; then
+          current_subtitle_arg="$temp_subtitle_file"
+          current_python_script="llm-python-vision-multi-images-file.py"
+        else
+          rm -f "$temp_subtitle_file"
+          temp_subtitle_file=""
+        fi
+      fi
+
+      # Construct the command arguments
+      cmd_args=("$prompt") # Use the conditionally set 'prompt'
+      if [ -n "$current_subtitle_arg" ]; then
+        cmd_args+=("$current_subtitle_arg")
+      fi
+      cmd_args+=("${subset[@]}")
+
+      echo "Sending frames ${start_frame}-${end_frame} to LLM..." >&2 # Debugging output
+
+      # Call the appropriate python script
+      output=$($current_python_script "${cmd_args[@]}")
+
+      # Append the frame numbers and the output to the output file
+      echo "Frames ${start_frame}-${end_frame}:" >> "$output_file"
+      echo "$output" >> "$output_file"
+
+      # Clean up temporary subtitle file if it was created
+      if [ -n "$temp_subtitle_file" ]; then
+        rm -f "$temp_subtitle_file"
+      fi
+    done
+  fi
+
+  # Summarize the output file using llm-python-file.py (only if not --all-frames)
+  if ! $all_frames; then
+    llm-python-file.py "$output_file" "$system_prompt" "$preprompt" "$postprompt" "$temperature"
+  fi
+fi # End of conditional logic for interactive vs. non-interactive mode
