@@ -160,8 +160,9 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
   else # LLM output is NO
     if $segment_in_progress; then
       # A continuous segment just ended
+      detected_end_frame_num=$(echo "scale=0; ($current_segment_end * $frame_rate) + 1" | bc) # Calculate frame number for the end of the detected segment
       all_detected_segments+=("${current_segment_start},${current_segment_end}")
-      echo "  Detection of '${thing_to_detect}' ended at ${current_segment_end}s (frame ${end_frame}). Stored segment: ${current_segment_start}-${current_segment_end}" >&2
+      echo "  Detection of '${thing_to_detect}' ended at ${current_segment_end}s (frame ${detected_end_frame_num}). Stored segment: ${current_segment_start}-${current_segment_end}" >&2
       
       # If not in full mode, and this is the first segment we've identified, then we are done.
       if ! $full_mode && ! $first_clip_identified; then
@@ -180,6 +181,7 @@ done # End of loop through batches
 
 # After the loop, handle any segment that was in progress at the end of the video
 if $segment_in_progress; then
+  detected_end_frame_num=$(echo "scale=0; ($current_segment_end * $frame_rate) + 1" | bc) # Calculate frame number for the end of the detected segment
   all_detected_segments+=("${current_segment_start},${current_segment_end}")
   echo "  Detection of '${thing_to_detect}' ended at ${current_segment_end}s (end of video). Stored segment: ${current_segment_start}-${current_segment_end}" >&2
   # If not in full mode, and this is the first segment we've identified (because it went to end of video)
