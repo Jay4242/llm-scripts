@@ -16,6 +16,7 @@ frame_rate=2         # Frames per second to extract
 frames_per_batch=20  # Number of frames to send to LLM per batch
 output_clip_name="clipped_video.mp4" # Default output filename for the clipped video
 full_mode=false      # New: Option to scan full video and concatenate all detections
+temperature="0.6"    # New: Default temperature for LLM calls
 
 # Variables for tracking the *first* continuous segment (for non-full mode)
 first_clip_start_time=-1
@@ -29,6 +30,12 @@ segment_in_progress=false # Flag to indicate if a continuous segment is currentl
 
 # Array to store all detected segments [start_time,end_time] for --full mode
 declare -a all_detected_segments
+declare -a POSITIONAL_ARGS=() # Array to store positional arguments
+
+# Variables for video source
+video_url=""
+local_file_path=""
+use_local_file=false
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -57,25 +64,45 @@ while [[ $# -gt 0 ]]; do
       full_mode=true
       shift
       ;;
+    -l|--local-file) # New flag for local file input
+      use_local_file=true
+      local_file_path="$2"
+      shift 2
+      ;;
     *)
-      # Positional arguments: video_url and thing_to_detect
-      if [ -z "$video_url" ]; then
-        video_url="$1"
-      elif [ -z "$thing_to_detect" ]; then
-        thing_to_detect="$1"
-      else
-        echo "Error: Unknown argument or too many positional arguments: $1" >&2
-        exit 1
-      fi
+      # Collect remaining positional arguments
+      POSITIONAL_ARGS+=("$1")
       shift
       ;;
   esac
 done
 
-# Check if mandatory arguments are provided
-if [ -z "$video_url" ] || [ -z "$thing_to_detect" ]; then
-  echo "Usage: $0 [-s|--scene-change] [-c|--cookies] [-o|--output-file <filename>] [-fr|--frame-rate <rate>] [-fb|--frames-per-batch <num>] [-f|--full] <video_url> <thing_to_detect>" >&2
-  echo "Example: $0 https://www.youtube.com/watch?v=dQw4w9WgXcQ 'Rick Astley singing'" >&2
+# Assign positional arguments after all flags are parsed
+thing_to_detect=""
+if $use_local_file; then
+  if [ ${#POSITIONAL_ARGS[@]} -ne 1 ]; then
+    echo "Error: When using -l/--local-file, exactly one positional argument (thing_to_detect) is required." >&2
+    echo "Usage (Local): $0 [options] -l|--local-file <path> <thing_to_detect>" >&2
+    echo "Example (Local): $0 -l /path/to/my/video.mp4 'cat playing piano'" >&2
+    exit 1
+  fi
+  thing_to_detect="${POSITIONAL_ARGS[0]}"
+else
+  if [ ${#POSITIONAL_ARGS[@]} -ne 2 ]; then
+    echo "Error: Exactly two positional arguments (<video_url> <thing_to_detect>) are required." >&2
+    echo "Usage (URL): $0 [options] <video_url> <thing_to_detect>" >&2
+    echo "Example (URL): $0 https://www.youtube.com/watch?v=dQw4w9WgXcQ 'Rick Astley singing'" >&2
+    exit 1
+  fi
+  video_url="${POSITIONAL_ARGS[0]}"
+  thing_to_detect="${POSITIONAL_ARGS[1]}"
+fi
+
+# Check if mandatory arguments are provided (either video_url or local_file_path must be set, and thing_to_detect)
+if ( [ -z "$video_url" ] && [ -z "$local_file_path" ] ) || [ -z "$thing_to_detect" ]; then
+  echo "Error: Missing video source or thing to detect." >&2
+  echo "Usage (URL): $0 [-s|--scene-change] [-c|--cookies] [-o|--output-file <filename>] [-fr|--frame-rate <rate>] [-fb|--frames-per-batch <num>] [-f|--full] <video_url> <thing_to_detect>" >&2
+  echo "Usage (Local): $0 [-s|--scene-change] [-c|--cookies] [-o|--output-file <filename>] [-fr|--frame-rate <rate>] [-fb|--frames-per-batch <num>] [-f|--full] -l|--local-file <path> <thing_to_detect>" >&2
   exit 1
 fi
 
@@ -85,13 +112,29 @@ if $use_cookies; then
   cookies_option="--cookies-from-browser chrome"
 fi
 
-echo "Downloading video..." >&2
-# Download the video
-yt-dlp --no-warnings ${cookies_option} -q -f "bestvideo[height<=720]+bestaudio/best[height<=720]" -o "${temp_dir}/video.%(ext)s" "${video_url}" || {
-  echo "Error: Failed to download video from ${video_url}. Exiting." >&2
-  exit 1
-}
-video="${temp_dir}/video.$(echo $(ls ${temp_dir}/video.* | cut -d '.' -f 2) )"
+# Determine the actual video path in temp_dir
+video=""
+if $use_local_file; then
+  if [ ! -f "$local_file_path" ]; then
+    echo "Error: Local video file not found at '${local_file_path}'. Exiting." >&2
+    exit 1
+  fi
+  echo "Copying local video file to temporary directory..." >&2
+  # Get the extension of the local file
+  local_file_ext="${local_file_path##*.}"
+  video="${temp_dir}/video.${local_file_ext}"
+  cp "$local_file_path" "$video" || {
+    echo "Error: Failed to copy local video file '${local_file_path}' to '${video}'. Exiting." >&2
+    exit 1
+  }
+else # Use yt-dlp for URL
+  echo "Downloading video..." >&2
+  yt-dlp --no-warnings ${cookies_option} -q -f "bestvideo[height<=720]+bestaudio/best[height<=720]" -o "${temp_dir}/video.%(ext)s" "${video_url}" || {
+    echo "Error: Failed to download video from ${video_url}. Exiting." >&2
+    exit 1
+  }
+  video="${temp_dir}/video.$(echo $(ls ${temp_dir}/video.* | cut -d '.' -f 2) )"
+fi
 
 echo "Extracting frames..." >&2
 # Extract frames from the video
@@ -127,16 +170,16 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
   current_batch_end_time=$(echo "scale=3; $end_frame / $frame_rate" | bc -l)
 
   # Construct the LLM prompt for detection. It's crucial to ask for a simple YES/NO.
-  detection_prompt="Is '${thing_to_detect}' visible in any of these frames? Answer only 'YES' or 'NO'. Do not add any other text."
+  detection_prompt="Is '${thing_to_detect}' visible in any of these frames? Answer 'YES' if you are absolutely certain it is visible in *at least one* frame, and 'NO' if it is visible in *none* of the frames or if you are unsure. Do not add any other text."
 
   # Construct the command arguments for the Python script
-  cmd_args=("$detection_prompt")
-  cmd_args+=("${subset[@]}")
+  cmd_args=("$detection_prompt" "$temperature") # Prompt is sys.argv[1], Temperature is sys.argv[2]
+  cmd_args+=("${subset[@]}") # Images start at sys.argv[3]
 
   echo "  Checking frames ${start_frame}-${end_frame} (${current_batch_start_time}s-${current_batch_end_time}s)..." >&2
 
-  # Call the llm-python-vision-multi-images.py script
-  llm_output=$(llm-python-vision-multi-images.py "${cmd_args[@]}")
+  # Call the llm-python-vision-multi-images.py script and time it
+  llm_output=$(time -p llm-python-vision-multi-images.py "${cmd_args[@]}")
   llm_exit_code=$?
 
   echo "    LLM Raw Output: '$llm_output'" >&2 # Added line to print LLM output
