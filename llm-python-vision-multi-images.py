@@ -9,13 +9,15 @@ import httpx
 import re
 
 # Point to the local server
-client = OpenAI(base_url="http://localhost:9090/v1", api_key="none", timeout=httpx.Timeout(3600))
+client = OpenAI(base_url="http://localhost:9595/v1", api_key="none", timeout=httpx.Timeout(3600))
 
 # Model selection
 model = "gemma3:4b-it-q8_0"
 
-# Retrieve the image paths from the remaining arguments
-image_paths = sys.argv[2:]
+# Retrieve the prompt, temperature, and image paths from the arguments
+prompt = sys.argv[1]
+temperature = float(sys.argv[2]) # New: Temperature argument
+image_paths = sys.argv[3:]       # Shifted: Image paths start from 3rd argument
 
 # Extract frame numbers from image paths
 frame_numbers = []
@@ -35,8 +37,8 @@ if frame_numbers:
 else:
     image_range = "No images found"
 
-# Retrieve the prompt from the arguments
-prompt = sys.argv[1] + f" The images are frames {image_range}"
+# Append image range to the prompt
+prompt += f" The images are frames {image_range}"
 
 # Prepare the messages for the LLM
 messages = [
@@ -46,11 +48,11 @@ messages = [
     },
     {
         "role": "user",
-        "content": [{"type": "text", "text": prompt}],
+        "content": [], # Initialize content as an empty list
     },
 ]
 
-# Read each image, encode it to base64, and add it to the messages
+# Read each image, encode it to base64, and add it to the messages (first)
 for image_path in image_paths:
     try:
         with open(image_path.replace("'", ""), "rb") as image_file:
@@ -66,12 +68,17 @@ for image_path in image_paths:
         print(f"Couldn't read the image at {image_path}. Make sure the path is correct and the file exists.")
         exit()
 
+# Add the text prompt to the messages (last)
+messages[1]["content"].append({"type": "text", "text": prompt})
+
+
 # Send the messages to the LLM
 completion = client.chat.completions.create(
     model=model,
     messages=messages,
     max_tokens=-1,
     stream=False,
+    temperature=temperature, # New: Pass temperature
 )
 
 # Print the response from the LLM
