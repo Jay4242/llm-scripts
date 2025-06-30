@@ -16,7 +16,7 @@ frame_rate=2         # Frames per second to extract
 frames_per_batch=20  # Number of frames to send to LLM per batch
 output_clip_name="clipped_video.mp4" # Default output filename for the clipped video
 full_mode=false      # New: Option to scan full video and concatenate all detections
-temperature="0.6"    # New: Default temperature for LLM calls
+temperature="0.15"    # New: Default temperature for LLM calls
 
 # Variables for tracking the *first* continuous segment (for non-full mode)
 first_clip_start_time=-1
@@ -192,7 +192,10 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
   # Trim whitespace and newlines from LLM output for reliable comparison
   llm_output_trimmed=$(echo "$llm_output" | tr -d '\n\r' | xargs | tr '[:lower:]' '[:upper:]') # Convert to uppercase for case-insensitive check
 
+  # Define the target directory for copying frames
+  target_copy_dir=""
   if [[ "$llm_output_trimmed" == "YES" ]]; then
+    target_copy_dir="${temp_dir}/YES"
     if ! $segment_in_progress; then
       # Start of a new continuous segment
       current_segment_start=$current_batch_start_time
@@ -201,6 +204,7 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
     fi
     current_segment_end=$current_batch_end_time # Extend the end time of the current segment
   else # LLM output is NO
+    target_copy_dir="${temp_dir}/NO"
     if $segment_in_progress; then
       # A continuous segment just ended
       detected_end_frame_num=$(echo "scale=0; ($current_segment_end * $frame_rate) + 1" | bc) # Calculate frame number for the end of the detected segment
@@ -219,6 +223,15 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
       current_segment_start=-1 # Reset
       current_segment_end=-1   # Reset
     fi
+  fi
+
+  # Copy frames to the respective YES/NO directory
+  if [ -n "$target_copy_dir" ]; then
+    mkdir -p "$target_copy_dir" # Ensure directory exists
+    for frame_path in "${subset[@]}"; do
+      cp "$frame_path" "$target_copy_dir/" || echo "Warning: Failed to copy frame $frame_path to $target_copy_dir" >&2
+    done
+    echo "    Copied ${num_subset} frames to $target_copy_dir" >&2
   fi
 done # End of loop through batches
 
