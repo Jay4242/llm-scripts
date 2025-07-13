@@ -5,6 +5,7 @@ import subprocess
 import os
 import argparse
 import re
+import html2text
 
 def parse_vtt(vtt_data):
     """Parses VTT data and returns a list of subtitle entries."""
@@ -103,24 +104,61 @@ def get_automatic_subtitles(url):
 
 def download_vtt_subtitles(url, output_filename):
     """Downloads VTT subtitles from a YouTube video."""
+    vtt_dir = "vtt"
+    if not os.path.exists(vtt_dir):
+        os.makedirs(vtt_dir)
+
+    output_path = os.path.join(vtt_dir, output_filename)
+
     ydl_opts = {
         'skip_download': True,
         'writesubtitles': True,
         'writeautomaticsub': True,
         'subtitlesformat': 'vtt',
         'subtitleslangs': ['en'],
-        'outtmpl': output_filename,
+        'outtmpl': output_path,
         'no_warnings': True,
         'quiet': True,
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-        print(f"VTT subtitles downloaded to {output_filename}.en.vtt")
+        print(f"VTT subtitles downloaded to {output_path}.en.vtt")
     except yt_dlp.utils.DownloadError as e:
         print(f"Error downloading VTT subtitles for {url}: {e}")
 
-def search_channel(channel_url, search_query, llm_mode=False):
+def download_srv3_subtitles(url, output_filename):
+    """Downloads srv3 subtitles from a YouTube video."""
+    srv3_dir = "srv3"
+    if not os.path.exists(srv3_dir):
+        os.makedirs(srv3_dir)
+
+    output_path = os.path.join(srv3_dir, output_filename)
+
+    # Check if the srv3 file already exists
+    if os.path.exists(f"{output_path}.en.srv3"):
+        print(f"srv3 subtitles already exist for {output_filename}")
+        return
+
+    ydl_opts = {
+        'skip_download': True,
+        'writesubtitles': True,
+        'writeautomaticsub': True,
+        'subtitlesformat': 'srv3',
+        'subtitleslangs': ['en'],
+        'outtmpl': output_path,
+        'no_warnings': True,
+        'quiet': True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        print(f"srv3 subtitles downloaded to {output_path}.en.srv3")
+    except yt_dlp.utils.DownloadError as e:
+        print(f"Error downloading srv3 subtitles for {url}: {e}")
+
+
+def search_channel(channel_url, search_query, llm_question=None):
     """Searches a YouTube channel for videos related to the search query."""
     try:
         ydl_opts = {
@@ -142,7 +180,7 @@ def search_channel(channel_url, search_query, llm_mode=False):
                     output_filename = f"{video_id}"
                     download_vtt_subtitles(video_url, output_filename)
 
-                    subtitle_filename = f"{video_id}.en.vtt"
+                    subtitle_filename = os.path.join("vtt", f"{video_id}.en.vtt")
 
                     try:
                         with open(subtitle_filename, 'r', encoding='utf-8') as f:
@@ -150,43 +188,60 @@ def search_channel(channel_url, search_query, llm_mode=False):
                     except FileNotFoundError:
                         print(f"Subtitle file {subtitle_filename} not found.")
                         continue
-                    finally:
-                        f.close()
 
                     if subtitles_vtt:
                         subtitles = parse_vtt(subtitles_vtt)
                         if subtitles:
-                            all_text = "\n".join([entry['text'] for entry in subtitles if entry['text'].strip()])
-                            if all_text:
-                                if llm_mode:
-                                    # Use llm-python-file.py to check relevance
-                                    command = [
-                                        "/usr/local/bin/llm-python-file.py",
-                                        "-",  # Read from stdin
-                                        "You are a helpful assistant.",
-                                        f"The following is a youtube video transcription.",
-                                        f"Does this help answer the question or topic of `{search_query}`? Start your answer with `Yes` or `No`.",
-                                        "0.0"
-                                    ]
-                                    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                                    stdout, stderr = process.communicate(input=all_text)
-                                    if "Yes" in stdout:
-                                        print(f"LLM Match: {video_url}")
-                                        for sub in subtitles:
-                                            if search_query.lower() in sub['text'].lower():
-                                                print(f"  - {sub['timecode_line']}")  # Print the timecode line
-                                                print(f"  - {sub['text']}")
-                                        input("Press Enter to continue...")
+                            matching_subs = []
+                            for sub in subtitles:
+                                if search_query.lower() in sub['text'].lower():
+                                    matching_subs.append(sub)
+                            
+                            if matching_subs:
+                                print(f"Match in: {video_url}")
+                                for sub in matching_subs:
+                                    print(f"  - {sub['timecode_line']}")
+                                    print(f"  - {sub['text']}")
+                                
+                                if llm_question:
+                                    download_srv3_subtitles(video_url, output_filename)
+                                    srv3_filename = os.path.join("srv3", f"{video_id}.en.srv3")
+                                    
+                                    try:
+                                        with open(srv3_filename, 'r', encoding='utf-8') as f:
+                                            srv3_content = f.read()
+                                        
+                                        # Process srv3 with html2text
+                                        h = html2text.HTML2Text()
+                                        h.ignore_links = True
+                                        clean_text = h.handle(srv3_content)
+                                        
+                                        # Overwrite the srv3 file with the cleaned text
+                                        with open(srv3_filename, 'w', encoding='utf-8') as f:
+                                            f.write(clean_text)
 
-                                else:
-                                    # Simple grep-like search
-                                    if search_query.lower() in all_text.lower():
-                                        print(f"Grep Match: {video_url}")
-                                        for sub in subtitles:
-                                            if search_query.lower() in sub['text'].lower():
-                                                print(f"  - {sub['timecode_line']}")  # Print the timecode line
-                                                print(f"  - {sub['text']}")
-                                        input("Press Enter to continue...")
+                                        command = [
+                                            "/usr/local/bin/llm-python-file.py",
+                                            srv3_filename,
+                                            "You are a helpful assistant.",
+                                            f"The following are subtitles from a youtube video that matched the query `{search_query}`. Please answer the user's question based on the full transcript.",
+                                            llm_question,
+                                            "0.0"
+                                        ]
+                                        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                                        stdout, stderr = process.communicate()
+
+                                        if stderr:
+                                            print(f"LLM Error: {stderr}")
+                                        if stdout:
+                                            print(f"LLM Response:\n{stdout}")
+
+                                    except FileNotFoundError:
+                                        print(f"SRV3 file {srv3_filename} not found.")
+                                        continue
+                                
+                                input("Press Enter to continue...")
+
     except Exception as e:
         print(f"An error occurred: {e}")
     except KeyboardInterrupt:
@@ -197,7 +252,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Search YouTube channel videos using subtitles.")
     parser.add_argument("channel_url", help="The YouTube channel URL (e.g., /@username/videos or /channel/CHANNEL_ID)")
     parser.add_argument("search_query", help="The search query.")
-    parser.add_argument("--llm", action="store_true", help="Use LLM mode for searching (requires llm-python-file.py).")
+    parser.add_argument("--llm", help="The question/command to be sent to the LLM over matching subtitles.")
     parser.add_argument("--download_vtt", action="store_true", help="Download VTT subtitles for the first video found.")
 
 
@@ -205,7 +260,7 @@ if __name__ == "__main__":
 
     channel_url = args.channel_url
     search_query = args.search_query
-    llm_mode = args.llm
+    llm_question = args.llm
     download_vtt = args.download_vtt
 
     if download_vtt:
@@ -223,7 +278,8 @@ if __name__ == "__main__":
                     first_video_id = info['entries'][0].get('id')
                     if first_video_id:
                          first_video_url = f"https://www.youtube.com/watch?v={first_video_id}"
-                         download_vtt_subtitles(first_video_url)
+                         output_filename = f"{first_video_id}"
+                         download_vtt_subtitles(first_video_url, output_filename)
                     else:
                         print("Could not extract video ID from the first entry.")
                 else:
@@ -233,4 +289,4 @@ if __name__ == "__main__":
             print(f"An error occurred while trying to download VTT subtitles: {e}")
             sys.exit(1)
 
-    search_channel(channel_url, search_query, llm_mode)
+    search_channel(channel_url, search_query, llm_question)
