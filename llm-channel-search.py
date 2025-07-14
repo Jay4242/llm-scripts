@@ -216,6 +216,9 @@ def search_channel(channel_url, search_query, llm_question=None):
                                         h.ignore_links = True
                                         clean_text = h.handle(srv3_content)
                                         
+                                        # Remove blank lines
+                                        clean_text = "\n".join([line for line in clean_text.splitlines() if line.strip()])
+
                                         # Overwrite the srv3 file with the cleaned text
                                         with open(srv3_filename, 'w', encoding='utf-8') as f:
                                             f.write(clean_text)
