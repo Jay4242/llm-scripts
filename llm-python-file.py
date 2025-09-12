@@ -23,7 +23,7 @@ except Exception as e:
 
 
 # Point to the local server
-client = OpenAI(base_url="http://anon-ai.lan:9090/v1", api_key="lm-studio", timeout=httpx.Timeout(7200))
+client = OpenAI(base_url="http://localhost:9090/v1", api_key="lm-studio", timeout=httpx.Timeout(7200))
 
 completion = client.chat.completions.create(
   model="gemma-2-2b-it-q8_0",
