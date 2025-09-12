@@ -23,10 +23,10 @@ except Exception as e:
 
 
 # Point to the local server
-client = OpenAI(base_url="http://localhost:9090/v1", api_key="none", timeout=httpx.Timeout(3600))
+client = OpenAI(base_url="http://anon-ai.lan:9090/v1", api_key="lm-studio", timeout=httpx.Timeout(7200))
 
 completion = client.chat.completions.create(
-  model="llama-3.2-3b-it-q8_0",
+  model="gemma-2-2b-it-q8_0",
   messages=[
     {"role": "system", "content": system },
     {"role": "user", "content": preprompt },
@@ -37,10 +37,10 @@ completion = client.chat.completions.create(
   stream=True,
 )
 
-#print(completion.choices[0].message.content.strip())  #If you want stream=False then this prints it.
+#print(completion.choices[0].message.content.strip())
 
 for chunk in completion:
-  if chunk.choices[0].delta.content:
+  if chunk.choices and chunk.choices[0].delta.content:
     print(chunk.choices[0].delta.content, end="", flush=True)
 print('\n')
 
