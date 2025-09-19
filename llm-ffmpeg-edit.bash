@@ -140,10 +140,10 @@ echo "Extracting frames..." >&2
 # Extract frames from the video
 if $scene_change; then
   # Extract scene frames with fixed frame rate and scene detection
-  ffmpeg -i "${video}" -vf "fps=${frame_rate},select='gt(scene,${scene_threshold})'" -vsync vfr "${temp_dir}/frame_%04d.jpg" 2>/dev/null
+  ffmpeg -i "${video}" -vf "fps=${frame_rate},select='gt(scene,${scene_threshold})'" -vsync vfr -q:v 1 "${temp_dir}/frame_%08d.jpg" 2>/dev/null
 else
   # Extract frames at a fixed rate
-  ffmpeg -i "${video}" -vf "fps=${frame_rate}" "${temp_dir}/frame_%04d.jpg" 2>/dev/null
+  ffmpeg -i "${video}" -vf "fps=${frame_rate}" -q:v 1 "${temp_dir}/frame_%08d.jpg" 2>/dev/null
 fi
 
 # Check if any frames were extracted
