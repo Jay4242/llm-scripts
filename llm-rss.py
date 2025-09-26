@@ -19,6 +19,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 import httpx
 import argparse
+import random
 import subprocess
 import pyttsx3
 engine = pyttsx3.init()
@@ -237,8 +238,9 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Fetch and process CBS News RSS feed.")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    parser.add_argument("--speak", action="store_true", help="Speak the summary using espeak")
+    parser.add_argument("--speak", action="store_true", help="Speak the summary using pyttsx3")
     parser.add_argument("--save", action="store_true", help="Save processed URLs to llm-rss-output.txt and skip them next run")
+    parser.add_argument("--random", action="store_true", help="Select a random article instead of using the LLM")
     args = parser.parse_args()
 
     if args.debug:
@@ -273,30 +275,36 @@ def main() -> None:
 
     # Process articles in a loop, letting the LLM pick one each time
     while articles and not shutdown_requested:
-        formatted = format_cbs_articles_for_llm(articles)
-        logger.debug(f"Formatted articles: {formatted}")
-        system = "You're an expert news analyst."
-        preprompt = "You are given a list of recent articles in JSON format. Examine them and select the most important one. Do not construct the URL from the title; use the 'link' field exactly as provided. Respond with the exact URL from that field, and nothing else."
-        prompt = formatted
-        postprompt = "Select the article you think is most important. Return only the URL from the 'link' field of that article, exactly as it appears, with no additional text, no explanations, no formatting."
-        result = send_to_llm(system, preprompt, prompt, postprompt)
-        result = re.sub(r'<think>.*?</think>', '', result, flags=re.DOTALL)
-        url_match = re.search(r'https?://[^\s"\']+', result)
-        if not url_match:
-            logger.warning("No URL found in LLM response.")
-            break
-        url = url_match.group(0)
-        # Ensure the URL is one of the article links
-        if url not in [a.get("link") for a in articles]:
-            logger.warning(f"URL {url} not found in article list; skipping.")
-            continue
-        if args.save and url in saved_urls:
-            logger.info(f"Skipping already processed URL: {url}")
-            # Remove from list to avoid re‑processing
-            articles = [a for a in articles if a.get("link") != url]
-            continue
-        print(f"Selected URL: {url}")
-        logger.debug(f"Selected URL: {url}")
+        if args.random:
+            article = random.choice(articles)
+            url = article.get("link")
+            print(f"Randomly selected URL: {url}")
+            logger.debug(f"Randomly selected URL: {url}")
+        else:
+            formatted = format_cbs_articles_for_llm(articles)
+            logger.debug(f"Formatted articles: {formatted}")
+            system = "You're an expert news analyst."
+            preprompt = "You are given a list of recent articles in JSON format. Examine them and select the most important one. Do not construct the URL from the title; use the 'link' field exactly as provided. Respond with the exact URL from that field, and nothing else."
+            prompt = formatted
+            postprompt = "Select the article you think is most important. Return only the URL from the 'link' field of that article, exactly as it appears, with no additional text, no explanations, no formatting."
+            result = send_to_llm(system, preprompt, prompt, postprompt)
+            result = re.sub(r'<think>.*?</think>', '', result, flags=re.DOTALL)
+            url_match = re.search(r'https?://[^\s"\']+', result)
+            if not url_match:
+                logger.warning("No URL found in LLM response.")
+                break
+            url = url_match.group(0)
+            # Ensure the URL is one of the article links
+            if url not in [a.get("link") for a in articles]:
+                logger.warning(f"URL {url} not found in article list; skipping.")
+                continue
+            if args.save and url in saved_urls:
+                logger.info(f"Skipping already processed URL: {url}")
+                # Remove from list to avoid re‑processing
+                articles = [a for a in articles if a.get("link") != url]
+                continue
+            print(f"Selected URL: {url}")
+            logger.debug(f"Selected URL: {url}")
 
         # Fetch the article content
         article_data = fetch_article_content(url)
