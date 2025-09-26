@@ -20,6 +20,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 import httpx
 import argparse
 import subprocess
+import pyttsx3
+engine = pyttsx3.init()
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
@@ -221,6 +223,11 @@ def signal_handler(sig, frame):
         print("\nCtrl-C pressed. Will exit after current article.")
         shutdown_requested = True
 
+def speak(text: str) -> None:
+    global engine
+    engine.say(text)
+    engine.runAndWait()
+
 def main() -> None:
     """
     Main entry point: fetch the feed, parse it, and print a summary.
@@ -307,7 +314,7 @@ def main() -> None:
             summary_text = "\n".join(lines)
             print(summary_text)
             if args.speak:
-                subprocess.run(["espeak", summary_text])
+                speak(summary_text)
         print()
 
         # Save the URL if requested
