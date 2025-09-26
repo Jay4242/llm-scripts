@@ -238,7 +238,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Fetch and process CBS News RSS feed.")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     parser.add_argument("--speak", action="store_true", help="Speak the summary using espeak")
-    parser.add_argument("--save", action="store_true", help="Save processed URLs to output.txt and skip them next run")
+    parser.add_argument("--save", action="store_true", help="Save processed URLs to llm-rss-output.txt and skip them next run")
     args = parser.parse_args()
 
     if args.debug:
@@ -263,8 +263,8 @@ def main() -> None:
 
     # Load previously processed URLs if --save flag is used
     saved_urls = set()
-    if args.save and os.path.exists("output.txt"):
-        with open("output.txt", "r", encoding="utf-8") as f:
+    if args.save and os.path.exists("llm-rss-output.txt"):
+        with open("llm-rss-output.txt", "r", encoding="utf-8") as f:
             for line in f:
                 saved_urls.add(line.strip())
     # Exclude already processed URLs when --save is used
@@ -319,7 +319,7 @@ def main() -> None:
 
         # Save the URL if requested
         if args.save:
-            with open("output.txt", "a", encoding="utf-8") as f:
+            with open("llm-rss-output.txt", "a", encoding="utf-8") as f:
                 f.write(url + "\n")
         # Remove the processed article from the list
         articles = [a for a in articles if a.get("link") != url]
