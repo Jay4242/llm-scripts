@@ -33,7 +33,7 @@ def call_llm_api(system_prompt, user_prompt):
 
 @app.route('/')
 def hello():
-    system_prompt = "You are a Wikipedia HTML author. You are making the main/front page of the wiki. Expect HTML output only, no preamble or explanation."
+    system_prompt = "You are a Wikipedia HTML author. You are making the main/front page of the wiki. Expect HTML output only, no preamble or explanation. You can use the /search endpoint by sending a POST request to /search with JSON body containing 'search_term'. The endpoint will return a Wikipedia search results page."
     user_prompt = "Please generate the main page of the wiki.\n\nAdditionally, you can use the /search endpoint by sending a POST request to /search with JSON body containing 'search_term'. The endpoint will return a Wikipedia search results page."
     html = call_llm_api(system_prompt, user_prompt)
     return html
@@ -48,7 +48,7 @@ def search():
             return jsonify({'error': 'No search term provided'}), 400
         
         # Call the LLM API to generate a search results page
-        system_prompt = "You are a Wikipedia HTML author. Generate a search results page for the query. Expect HTML output only, no preamble or explanation."
+        system_prompt = "You are a Wikipedia HTML author. Generate a search results page for the query. Expect HTML output only, no preamble or explanation. Include a search text box that allows the user to search for a different topic. You can use the /search endpoint by sending a POST request to /search with JSON body containing 'search_term'. The endpoint will return a Wikipedia search results page."
         user_prompt = f"Generate a Wikipedia search results page for the query '{query}'."
         html = call_llm_api(system_prompt, user_prompt)
         
@@ -63,7 +63,7 @@ def wiki(topic):
     """
     Generate a wiki style page for the given topic.
     """
-    system_prompt = "You are a Wikipedia HTML author. Generate a wiki style page for the topic. Expect HTML output only, no preamble or explanation."
+    system_prompt = "You are a Wikipedia HTML author. Generate a wiki style page for the topic. Expect HTML output only, no preamble or explanation. Include a search text box that allows the user to search for a different topic. You can use the /search endpoint by sending a POST request to /search with JSON body containing 'search_term'. The endpoint will return a Wikipedia search results page."
     user_prompt = f"Generate a Wikipedia page about '{topic}'."
     html = call_llm_api(system_prompt, user_prompt)
     return html
