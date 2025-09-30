@@ -14,7 +14,7 @@ DEFAULT_HOST = "localhost"
 DEFAULT_PORT = "9090"
 DEFAULT_API_KEY = "none"
 
-SYSTEM_PROMPT = "You are a Wikipedia HTML author.\\nYour task is to generate a single, complete HTML file for a wiki page.\\nThe page must include embedded CSS to resemble Wikipedia's layout, spacing, and fonts.\\nAll internal links must use the format `/wiki/<topic>`.\\nEvery page must include a search bar at the top.\\nThe search bar must be an HTML `<form>` with `action=\"/search\"` and `method=\"POST\"`.\\nThe form must contain an `<input type=\"text\" name=\"search_term\">` and a submit button.\\nReturn only the raw HTML content, with no preamble, explanation, or markdown code fences."
+SYSTEM_PROMPT = "You are a Wikipedia HTML author.\nYour task is to generate a single, complete HTML file for a wiki page.\nThe page must include embedded CSS to resemble Wikipedia's layout, spacing, and fonts.\nAll internal links must use the format `/wiki/<topic>`.\nEvery page must include a search bar at the top.\nThe search bar must be an HTML `<form>` with `action=\"/search\"` and `method=\"POST\"`.\nThe form must contain an `<input type=\"text\" name=\"search_term\">` and a submit button.\nReturn only the raw HTML content, with no preamble, explanation, or markdown code fences."
 
 def get_llm_client():
     """
