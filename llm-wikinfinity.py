@@ -14,6 +14,8 @@ DEFAULT_HOST = "localhost"
 DEFAULT_PORT = "9090"
 DEFAULT_API_KEY = "none"
 
+SYSTEM_PROMPT = "You are a Wikipedia HTML author.\\nYour task is to generate a single, complete HTML file for a wiki page.\\nThe page must include embedded CSS to resemble Wikipedia's layout, spacing, and fonts.\\nAll internal links must use the format `/wiki/<topic>`.\\nEvery page must include a search bar at the top.\\nThe search bar must be an HTML `<form>` with `action=\"/search\"` and `method=\"POST\"`.\\nThe form must contain an `<input type=\"text\" name=\"search_term\">` and a submit button.\\nReturn only the raw HTML content, with no preamble, explanation, or markdown code fences."
+
 def get_llm_client():
     """
     Create and return an OpenAI client configured with environment variables.
@@ -77,9 +79,8 @@ def stream_llm_response(system_prompt, user_prompt):
 
 @app.route('/')
 def hello():
-    system_prompt = "You are a Wikipedia HTML author. Create the main/front page of a wiki. Return only HTML with no preamble or explanation. Include a search box at the top of every page for users to search topics. The search box must have action=\"/search\" and method=\"POST\". All internal links must use the format /wiki/<topic>. The page should be structured like a Wikipedia main page with featured content and navigation. Include embedded CSS styling to make the page look like a Wikipedia page with proper spacing, fonts, and layout."
-    user_prompt = "Please generate the main page of the wiki. Include a search box at the top for users to search topics. The search box must have action=\"/search\" and method=\"POST\". All internal links must use the format /wiki/<topic>. Include embedded CSS styling to make the page look like a Wikipedia page with proper spacing, fonts, and layout."
-    return stream_llm_response(system_prompt, user_prompt)
+    user_prompt = "Please generate the main page of the wiki."
+    return stream_llm_response(SYSTEM_PROMPT, user_prompt)
 
 @app.route('/search', methods=['POST'])
 def search():
@@ -89,10 +90,8 @@ def search():
         if not query:
             return jsonify({'error': 'No search term provided'}), 400
 
-        system_prompt = "You are a Wikipedia HTML author. Generate a search results page for the query. Return only HTML with no preamble or explanation. Include a search box at the top of every page for new searches. The search box must have action=\"/search\" and method=\"POST\". All internal links must use the format /wiki/<topic>. Display results in a clean, Wikipedia-style layout with titles and summaries. Include embedded CSS styling to make the page look like a Wikipedia page with proper spacing, fonts, and layout."
-        user_prompt = f"Generate a Wikipedia search results page for the query '{query}'. The search box must have action=\"/search\" and method=\"POST\". Include embedded CSS styling to make the page look like a Wikipedia page with proper spacing, fonts, and layout."
-
-        return stream_llm_response(system_prompt, user_prompt)
+        user_prompt = f"Generate a Wikipedia search results page for the query '{query}'."
+        return stream_llm_response(SYSTEM_PROMPT, user_prompt)
     except Exception as e:
         # For API errors, return JSON
         return jsonify({'error': str(e)}), 500
@@ -103,10 +102,8 @@ def wiki(topic):
     """
     Generate a wiki style page for the given topic.
     """
-    system_prompt = "You are a Wikipedia HTML author. Generate a complete wiki page for the topic. Return only HTML with no preamble or explanation. Include a search box at the top of every page for new searches. The search box must have action=\"/search\" and method=\"POST\". All internal links must use the format /wiki/<topic>. Structure the content like a Wikipedia article with proper headings and formatting. Include embedded CSS styling to make the page look like a Wikipedia page with proper spacing, fonts, and layout."
-    user_prompt = f"Generate a Wikipedia page about '{topic}'. The search box must have action=\"/search\" and method=\"POST\". Include embedded CSS styling to make the page look like a Wikipedia page with proper spacing, fonts, and layout."
-
-    return stream_llm_response(system_prompt, user_prompt)
+    user_prompt = f"Generate a Wikipedia page about '{topic}'."
+    return stream_llm_response(SYSTEM_PROMPT, user_prompt)
 
 if __name__ == '__main__':
     flask_host = os.getenv("FLASK_HOST", DEFAULT_FLASK_HOST)
