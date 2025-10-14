@@ -326,6 +326,12 @@ def main() -> None:
             print(document, file=sys.stderr)
             print("-" * 80, file=sys.stderr)
 
+        # Skip LLM inference if the fetched body text is empty.
+        if not document.strip():
+            if debug:
+                print(f"[DEBUG] No body text for {url}, skipping LLM inference.", file=sys.stderr)
+            continue
+
         summary = summarize(document, url)
         if debug:
             print(f"[DEBUG] Bullet‑point summary for {url}:", file=sys.stderr)
