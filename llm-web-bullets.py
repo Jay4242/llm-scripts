@@ -20,6 +20,7 @@ import requests
 from bs4 import BeautifulSoup
 from openai import OpenAI
 import httpx
+from typing import Dict
 
 # Base URL for the local LLM backend – change in one place if needed.
 BASE_URL = "http://localhost:9090/v1"
@@ -74,7 +75,7 @@ def summarize(document: str, url: str) -> str:
     return result
 
 
-def reconcile(summaries: dict) -> str:
+def reconcile(summaries: Dict[str, str]) -> str:
     """
     Send the collected bullet‑point summaries to the LLM backend and ask it to
     reconcile them into a cohesive summary.
@@ -118,7 +119,7 @@ def reconcile(summaries: dict) -> str:
             result += chunk.choices[0].delta.content
     return result
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Fetch webpages, summarize them with an LLM, and reconcile the summaries."
     )
@@ -138,7 +139,7 @@ def main():
     debug = args.debug
 
     # Collect summaries for each URL.
-    summaries = {}
+    summaries: Dict[str, str] = {}
     for url in urls:
         document = fetch_body_text(url)
         if debug:
