@@ -38,8 +38,12 @@ SEARX_BASE_URL = "http://searx.lan"
 
 def fetch_body_text(url: str) -> str:
     """Download the page at *url* and return the cleaned body text."""
-    response = requests.get(url, timeout=30, headers={"User-Agent": USER_AGENT})
-    response.raise_for_status()
+    try:
+        response = requests.get(url, timeout=30, headers={"User-Agent": USER_AGENT})
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"[ERROR] Failed to fetch {url}: {e}", file=sys.stderr)
+        return ""
     soup = BeautifulSoup(response.text, "html.parser")
     # Prefer the <body> tag; fall back to the whole document if missing.
     if soup.body:
@@ -58,16 +62,20 @@ def generate_search_terms(question: str) -> str:
         api_key=API_KEY,
         timeout=TIMEOUT,
     )
-    completion = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.0,
-        stream=False,
-    )
-    return completion.choices[0].message.content.strip()
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.0,
+            stream=False,
+        )
+        return completion.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[ERROR] generate_search_terms failed: {e}", file=sys.stderr)
+        return ""
 
 
 def searxng_news_search(query: str, time_range: Optional[str] = None) -> List[Dict[str, str]]:
@@ -112,27 +120,24 @@ def select_time_range(question: str) -> str:
         api_key=API_KEY,
         timeout=TIMEOUT,
     )
-    completion = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Question: {question}"},
-            {
-                "role": "user",
-                "content": (
-                    "Based on the question, choose a time range for searching news. "
-                    "Options are: day, week, month, year. Respond with only the chosen option."
-                ),
-            },
-        ],
-        temperature=0.0,
-        stream=False,
-    )
-    answer = completion.choices[0].message.content.strip().lower()
-    # Validate answer; default to None if not recognized
-    if answer in {"day", "week", "month", "year"}:
-        return answer
-    return None
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Question: {question}"},
+                {"role": "user", "content": "Based on the question, choose a time range for searching news. Options are: day, week, month, year. Respond with only the chosen option."},
+            ],
+            temperature=0.0,
+            stream=False,
+        )
+        answer = completion.choices[0].message.content.strip().lower()
+        if answer in {"day", "week", "month", "year"}:
+            return answer
+        return None
+    except Exception as e:
+        print(f"[ERROR] select_time_range failed: {e}", file=sys.stderr)
+        return None
 
 
 def is_relevant(question: str, title: str, description: str) -> bool:
@@ -146,25 +151,29 @@ def is_relevant(question: str, title: str, description: str) -> bool:
         api_key=API_KEY,
         timeout=TIMEOUT,
     )
-    completion = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Question: {question}"},
-            {"role": "user", "content": f"Article Title: {title}"},
-            {"role": "user", "content": f"Article Description: {description}"},
-            {"role": "user", "content": "Answer with ONLY 'YES' if the article is relevant, otherwise answer with ONLY 'NO'."},
-        ],
-        temperature=0.0,
-        stream=False,
-    )
-    answer = completion.choices[0].message.content.strip().upper()
-    return answer == "YES"
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Question: {question}"},
+                {"role": "user", "content": f"Article Title: {title}"},
+                {"role": "user", "content": f"Article Description: {description}"},
+                {"role": "user", "content": "Answer with ONLY 'YES' if the article is relevant, otherwise answer with ONLY 'NO'."},
+            ],
+            temperature=0.0,
+            stream=False,
+        )
+        answer = completion.choices[0].message.content.strip().upper()
+        return answer == "YES"
+    except Exception as e:
+        print(f"[ERROR] is_relevant failed: {e}", file=sys.stderr)
+        return False
 
 
 def summarize(document: str, url: str) -> str:
     """Send *document* to the local LLM backend and return the streamed summary."""
-    system_prompt = f"You are a helpful assistant. Today is {CURRENT_DATE}."
+    system_prompt = f"You are a helpful assistant. Today is {CURRENT_DATE}. If the article contains no text, do not fabricate content; only summarize the provided text."
     pre_prompt = f"The following is the text from {url}:"
     post_prompt = "Create a complete but concise multi-tier bullet point summary of this article."
     temperature = TEMPERATURE  # configurable temperature
@@ -174,18 +183,21 @@ def summarize(document: str, url: str) -> str:
         api_key=API_KEY,
         timeout=TIMEOUT,
     )
-
-    completion = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": pre_prompt},
-            {"role": "user", "content": document},
-            {"role": "user", "content": post_prompt},
-        ],
-        temperature=temperature,
-        stream=True,
-    )
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": pre_prompt},
+                {"role": "user", "content": document},
+                {"role": "user", "content": post_prompt},
+            ],
+            temperature=temperature,
+            stream=True,
+        )
+    except Exception as e:
+        print(f"[ERROR] summarize failed: {e}", file=sys.stderr)
+        return ""
 
     result = ""
     for chunk in completion:
@@ -201,7 +213,7 @@ def reconcile(summaries: Dict[str, str]) -> str:
 
     *summaries* is a mapping of URL → bullet‑point summary.
     """
-    system_prompt = f"You are a helpful assistant. Today is {CURRENT_DATE}."
+    system_prompt = f"You are a helpful assistant. Today is {CURRENT_DATE}. If any of the provided summaries lack content, do not fabricate information; only use the given summaries."
     # Build the message list with a separate user entry for each URL and its summary.
     messages = [{"role": "system", "content": system_prompt}]
 
@@ -224,13 +236,16 @@ def reconcile(summaries: Dict[str, str]) -> str:
         api_key=API_KEY,
         timeout=TIMEOUT,
     )
-
-    completion = client.chat.completions.create(
-        model=MODEL,
-        messages=messages,
-        temperature=TEMPERATURE,
-        stream=True,
-    )
+    try:
+        completion = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            temperature=TEMPERATURE,
+            stream=True,
+        )
+    except Exception as e:
+        print(f"[ERROR] reconcile failed: {e}", file=sys.stderr)
+        return ""
 
     result = ""
     for chunk in completion:
@@ -274,6 +289,13 @@ def main() -> None:
 
         # Retrieve news results from the SearxNG instance.
         news_results = searxng_news_search(search_query, time_range)
+        if not news_results:
+            if debug:
+                print("[DEBUG] No results, retrying searx search...", file=sys.stderr)
+            news_results = searxng_news_search(search_query, time_range)
+            if not news_results:
+                print("[ERROR] No results after retry, exiting.", file=sys.stderr)
+                sys.exit(1)
         if debug:
             print(f"[DEBUG] Retrieved {len(news_results)} news results", file=sys.stderr)
 
