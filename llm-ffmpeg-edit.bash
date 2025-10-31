@@ -16,7 +16,21 @@ frame_rate=2         # Frames per second to extract
 frames_per_batch=20  # Number of frames to send to LLM per batch
 output_clip_name="clipped_video.mp4" # Default output filename for the clipped video
 full_mode=false      # New: Option to scan full video and concatenate all detections
-temperature="0.15"    # New: Default temperature for LLM calls
+# Determine appropriate temperature based on the available model
+# Query the model list from the local server
+model_list_json=$(curl -s localhost:9595/models) || {
+  echo "Warning: Failed to fetch model list; using default temperature." >&2
+  temperature="1.0"
+}
+# Extract model names and check for Qwen or Mistral (case‑insensitive)
+if echo "$model_list_json" | jq -r '.models[].name' | grep -i -q 'Qwen'; then
+  temperature="1.0"
+elif echo "$model_list_json" | jq -r '.models[].name' | grep -i -q 'Mistral'; then
+  temperature="0.15"
+else
+  # Fallback default
+  temperature="1.0"
+fi
 
 # Variables for tracking the *first* continuous segment (for non-full mode)
 first_clip_start_time=-1
@@ -69,6 +83,24 @@ while [[ $# -gt 0 ]]; do
       local_file_path="$2"
       shift 2
       ;;
+    --help)
+      echo "Usage: $0 [options] <video_url> <thing_to_detect>"
+      echo ""
+      echo "Options:"
+      echo "  -s, --scene-change           Enable scene change detection (default: false)"
+      echo "  -c, --cookies                Use cookies from Chrome browser for yt-dlp"
+      echo "  -o, --output-file <filename> Specify output clip filename (default: clipped_video.mp4)"
+      echo "  -fr, --frame-rate <rate>     Frames per second to extract (default: 2)"
+      echo "  -fb, --frames-per-batch <num> Number of frames per batch sent to LLM (default: 20)"
+      echo "  -f, --full                   Scan full video and concatenate all detections"
+      echo "  -l, --local-file <path>      Use a local video file instead of downloading"
+      echo "  --help                       Show this help message and exit"
+      echo ""
+      echo "Positional arguments:"
+      echo "  <video_url>                  URL of the video to process (if not using -l)"
+      echo "  <thing_to_detect>            Description of what to detect in the video"
+      exit 0
+      ;;
     *)
       # Collect remaining positional arguments
       POSITIONAL_ARGS+=("$1")
@@ -100,9 +132,24 @@ fi
 
 # Check if mandatory arguments are provided (either video_url or local_file_path must be set, and thing_to_detect)
 if ( [ -z "$video_url" ] && [ -z "$local_file_path" ] ) || [ -z "$thing_to_detect" ]; then
-  echo "Error: Missing video source or thing to detect." >&2
-  echo "Usage (URL): $0 [-s|--scene-change] [-c|--cookies] [-o|--output-file <filename>] [-fr|--frame-rate <rate>] [-fb|--frames-per-batch <num>] [-f|--full] <video_url> <thing_to_detect>" >&2
-  echo "Usage (Local): $0 [-s|--scene-change] [-c|--cookies] [-o|--output-file <filename>] [-fr|--frame-rate <rate>] [-fb|--frames-per-batch <num>] [-f|--full] -l|--local-file <path> <thing_to_detect>" >&2
+  echo "Error: Missing required arguments." >&2
+  echo "" >&2
+  echo "Usage: $0 [options] <video_url> <thing_to_detect>" >&2
+  echo "   or: $0 [options] -l|--local-file <path> <thing_to_detect>" >&2
+  echo "" >&2
+  echo "Options:" >&2
+  echo "  -s, --scene-change           Enable scene change detection (default: false)" >&2
+  echo "  -c, --cookies                Use cookies from Chrome browser for yt-dlp" >&2
+  echo "  -o, --output-file <filename> Specify output clip filename (default: clipped_video.mp4)" >&2
+  echo "  -fr, --frame-rate <rate>     Frames per second to extract (default: 2)" >&2
+  echo "  -fb, --frames-per-batch <num> Number of frames per batch sent to LLM (default: 20)" >&2
+  echo "  -f, --full                   Scan full video and concatenate all detections" >&2
+  echo "  -l, --local-file <path>      Use a local video file instead of downloading" >&2
+  echo "  --help                       Show this help message and exit" >&2
+  echo "" >&2
+  echo "Positional arguments:" >&2
+  echo "  <video_url>                  URL of the video to process (if not using -l)" >&2
+  echo "  <thing_to_detect>            Description of what to detect in the video" >&2
   exit 1
 fi
 
@@ -169,8 +216,8 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
   current_batch_start_time=$(echo "scale=3; ($start_frame - 1) / $frame_rate" | bc -l)
   current_batch_end_time=$(echo "scale=3; $end_frame / $frame_rate" | bc -l)
 
-  # Construct the LLM prompt for detection. It's crucial to ask for a simple YES/NO.
-  detection_prompt="Is '${thing_to_detect}' visible in any of these frames? Answer 'YES' if you are absolutely certain it is visible in *at least one* frame, and 'NO' if it is visible in *none* of the frames or if you are unsure. Do not add any other text."
+  # Construct the LLM prompt for detection. Request a JSON boolean response.
+  detection_prompt="Is '${thing_to_detect}' visible in any of these frames? Respond with JSON: {\"detected\": true} for yes or {\"detected\": false} for no."
 
   # Construct the command arguments for the Python script
   cmd_args=("$detection_prompt" "$temperature") # Prompt is sys.argv[1], Temperature is sys.argv[2]
@@ -190,11 +237,22 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
   fi
 
   # Trim whitespace and newlines from LLM output for reliable comparison
-  llm_output_trimmed=$(echo "$llm_output" | tr -d '\n\r' | xargs | tr '[:lower:]' '[:upper:]') # Convert to uppercase for case-insensitive check
+  # Parse the JSON output from the LLM. Expected format: {"detected": true} or {"detected": false}
+  detected=$(echo "$llm_output" | jq -r '.detected' 2>/dev/null || echo "null")
+  # Fallback to legacy YES/NO handling if JSON parsing fails
+  if [[ "$detected" != "true" && "$detected" != "false" ]]; then
+    # Strip whitespace and convert to uppercase for legacy check
+    detected=$(echo "$llm_output" | tr -d '\n\r' | xargs | tr '[:lower:]' '[:upper:]')
+    if [[ "$detected" == "YES" ]]; then
+      detected="true"
+    else
+      detected="false"
+    fi
+  fi
 
   # Define the target directory for copying frames
   target_copy_dir=""
-  if [[ "$llm_output_trimmed" == "YES" ]]; then
+  if [[ "$detected" == "true" ]]; then
     target_copy_dir="${temp_dir}/YES"
     if ! $segment_in_progress; then
       # Start of a new continuous segment
@@ -203,7 +261,7 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
       echo "  Detected '${thing_to_detect}' starting at ${current_segment_start}s (frame ${start_frame})." >&2
     fi
     current_segment_end=$current_batch_end_time # Extend the end time of the current segment
-  else # LLM output is NO
+  else
     target_copy_dir="${temp_dir}/NO"
     if $segment_in_progress; then
       # A continuous segment just ended
