@@ -82,4 +82,20 @@ completion = client.chat.completions.create(
 )
 
 # Print the response from the LLM
-print(completion.choices[0].message.content.strip())
+# Get the raw response from the LLM
+raw_output = completion.choices[0].message.content
+
+# Extract any <think>...</think> block and print it to stderr
+think_match = re.search(r'<think>(.*?)</think>', raw_output, flags=re.DOTALL)
+if think_match:
+    thinking_text = think_match.group(1).strip()
+    print(f"Thinking Text: {thinking_text}", file=sys.stderr)
+else:
+    # No <think> block was found – still emit a message to stderr to confirm stderr is functional
+    print("No thinking block detected.", file=sys.stderr)
+
+# Remove any <think>...</think> block (including the newline after </think>) from the output
+# The DOTALL flag allows '.' to match newlines so the entire block is removed
+clean_output = re.sub(r'<think>.*?</think>\s*', '', raw_output, flags=re.DOTALL).strip()
+
+print(clean_output)
