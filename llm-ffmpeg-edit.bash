@@ -217,7 +217,7 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
   current_batch_end_time=$(echo "scale=3; $end_frame / $frame_rate" | bc -l)
 
   # Construct the LLM prompt for detection. Request a JSON boolean response.
-  detection_prompt="Is '${thing_to_detect}' visible in any of these frames? Respond with JSON: {\"detected\": true} for yes or {\"detected\": false} for no."
+  detection_prompt="You are looking at a sequence of JPEG frames.\nThink step‑by‑step about the frames.\nAnswer with a single JSON object containing three fields: \"detected\" (true|false), \"reason\" (brief explanation), and \"frames\" (list of frame numbers where the target appears).\nDetermine if '${thing_to_detect}' appears in any frame. ONLY set \"detected\" to true if you are absolutely certain the target is visible; otherwise set it to false. Do not guess. Only output the JSON, no extra text. If the description is specific, verify that each specified detail appears exactly as given."
 
   # Construct the command arguments for the Python script
   cmd_args=("$detection_prompt" "$temperature") # Prompt is sys.argv[1], Temperature is sys.argv[2]
