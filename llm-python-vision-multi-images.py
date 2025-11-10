@@ -12,7 +12,7 @@ import re
 client = OpenAI(base_url="http://localhost:9595/v1", api_key="none", timeout=httpx.Timeout(3600))
 
 # Model selection
-model = "gemma3:4b-it-q8_0"
+model = "Qwen3-VL-30B-A3B-Thinking"
 
 # Retrieve the prompt, temperature, and image paths from the arguments
 prompt = sys.argv[1]
@@ -52,7 +52,10 @@ messages = [
     },
 ]
 
-# Read each image, encode it to base64, and add it to the messages (first)
+# Add the text prompt to the messages (first)
+messages[1]["content"].append({"type": "text", "text": prompt})
+
+# Read each image, encode it to base64, and add it to the messages (after prompt)
 for image_path in image_paths:
     try:
         with open(image_path.replace("'", ""), "rb") as image_file:
@@ -67,9 +70,6 @@ for image_path in image_paths:
     except FileNotFoundError:
         print(f"Couldn't read the image at {image_path}. Make sure the path is correct and the file exists.")
         exit()
-
-# Add the text prompt to the messages (last)
-messages[1]["content"].append({"type": "text", "text": prompt})
 
 
 # Send the messages to the LLM
