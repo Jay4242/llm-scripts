@@ -57,6 +57,15 @@ messages[1]["content"].append({"type": "text", "text": prompt})
 
 # Read each image, encode it to base64, and add it to the messages (after prompt)
 for image_path in image_paths:
+    # Extract the frame number from the filename (e.g., frame_00123.jpg)
+    _frame_match = re.search(r'frame_(\d+)\.jpg', image_path)
+    _frame_num = _frame_match.group(1) if _frame_match else "unknown"
+
+    # Insert a text line indicating the frame number before the image
+    messages[1]["content"].append(
+        {"type": "text", "text": f"Frame: {_frame_num}"}
+    )
+
     try:
         with open(image_path.replace("'", ""), "rb") as image_file:
             image_data = image_file.read()
