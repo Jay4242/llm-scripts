@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 """
-A simple teleprompter that displays lines of text, records the user's voice,
-and uses an LLM backend to verify that the spoken audio roughly matches the
-displayed text.
+A teleprompter utility that displays script lines, records spoken audio,
+and uses an LLM (via OpenAI‑compatible API) to evaluate whether the audio
+matches the displayed text.
 
 Usage:
     python llm-teleprompter.py <script.txt>
 
-The script file should contain one line of text per prompt.  For each line the
-program will:
+The script file should contain one line of text per prompt. For each line the
+program:
 
-1. Show the line in a pygame window.
-2. Wait for the user to press the SPACE bar to start recording.
-3. Record a fixed duration of audio (default 5 seconds) from the microphone.
-4. Send the text and the recorded audio to the LLM backend (via OpenAI‑compatible
-   API) and ask it to answer “True” if the audio matches the text, otherwise
-   “False”.
-5. If the answer is True the audio file is saved as ``audio_XXXXX.wav`` and the
-   program proceeds to the next line; otherwise the user can try again.
+1. Renders the line in a pygame window (with word‑wrap and periodic redraw).
+2. Waits for the user to press SPACE to start recording, and press SPACE again to stop.
+3. Sends the text and the recorded WAV file to the configured LLM model.
+4. Interprets the model’s response (“True”/“False”) as a match indicator.
+5. On a True response the recording is kept and the program advances; on
+   False the recording is discarded and the user may retry.
+
+Navigation keys:
+   ←  previous line, →  next line, ESC  quit.
 
 Dependencies:
     pip install pygame sounddevice numpy openai
