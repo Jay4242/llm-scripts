@@ -54,8 +54,15 @@ messages = [
     },
 ]
 
+# Add the text prompt to the messages (first)
+messages[1]["content"].append({"type": "text", "text": prompt})
 # Read each image, encode it to base64, and add it to the messages (first)
 for image_path in image_paths:
+    # Extract frame number for annotation
+    _frame_match = re.search(r'frame_(\d+)\.jpg', image_path)
+    _frame_num = _frame_match.group(1) if _frame_match else "unknown"
+    # Add frame annotation text
+    messages[1]["content"].append({"type": "text", "text": f"Frame: {_frame_num}"})
     try:
         with open(image_path.replace("'", ""), "rb") as image_file:
             image_data = image_file.read()
@@ -70,8 +77,6 @@ for image_path in image_paths:
         print(f"Couldn't read the image at {image_path}. Make sure the path is correct and the file exists.")
         exit()
 
-# Add the text prompt to the messages (last)
-messages[1]["content"].append({"type": "text", "text": prompt})
 
 # Read the subtitle file and add its content to the messages
 try:
