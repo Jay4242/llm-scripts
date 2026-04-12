@@ -9,20 +9,22 @@ import httpx
 import re
 
 # Point to the local server
-client = OpenAI(base_url="http://localhost:9595/v1", api_key="none", timeout=httpx.Timeout(3600))
+client = OpenAI(
+    base_url="http://localhost:9595/v1", api_key="none", timeout=httpx.Timeout(3600)
+)
 
 # Model selection
 model = "Qwen3-VL-30B-A3B-Thinking"
 
 # Retrieve the prompt, temperature, and image paths from the arguments
 prompt = sys.argv[1]
-temperature = float(sys.argv[2]) # New: Temperature argument
-image_paths = sys.argv[3:]       # Shifted: Image paths start from 3rd argument
+temperature = float(sys.argv[2])  # New: Temperature argument
+image_paths = sys.argv[3:]  # Shifted: Image paths start from 3rd argument
 
 # Extract frame numbers from image paths
 frame_numbers = []
 for path in image_paths:
-    match = re.search(r'frame_(\d+)\.jpg', path)
+    match = re.search(r"frame_(\d+)\.jpg", path)
     if match:
         frame_numbers.append(int(match.group(1)))
     else:
@@ -48,7 +50,7 @@ messages = [
     },
     {
         "role": "user",
-        "content": [], # Initialize content as an empty list
+        "content": [],  # Initialize content as an empty list
     },
 ]
 
@@ -57,14 +59,12 @@ messages[1]["content"].append({"type": "text", "text": prompt})
 
 # Read each image, encode it to base64, and add it to the messages (after prompt)
 for image_path in image_paths:
-    # Extract the frame number from the filename (e.g., frame_00123.jpg)
-    _frame_match = re.search(r'frame_(\d+)\.jpg', image_path)
-    _frame_num = _frame_match.group(1) if _frame_match else "unknown"
+    # Extract frame number from filename and normalize (e.g., frame_00123.jpg -> 123)
+    _frame_match = re.search(r"frame_(\d+)\.jpg", image_path)
+    _frame_num = int(_frame_match.group(1)) if _frame_match else "unknown"
 
-    # Insert a text line indicating the frame number before the image
-    messages[1]["content"].append(
-        {"type": "text", "text": f"Frame: {_frame_num}"}
-    )
+    # Insert label before each image in "Frame N:" format
+    messages[1]["content"].append({"type": "text", "text": f"Frame {_frame_num}:"})
 
     try:
         with open(image_path.replace("'", ""), "rb") as image_file:
@@ -77,7 +77,9 @@ for image_path in image_paths:
                 }
             )
     except FileNotFoundError:
-        print(f"Couldn't read the image at {image_path}. Make sure the path is correct and the file exists.")
+        print(
+            f"Couldn't read the image at {image_path}. Make sure the path is correct and the file exists."
+        )
         exit()
 
 
@@ -87,24 +89,33 @@ completion = client.chat.completions.create(
     messages=messages,
     max_tokens=-1,
     stream=False,
-    temperature=temperature, # New: Pass temperature
+    temperature=temperature,  # New: Pass temperature
 )
 
 # Print the response from the LLM
 # Get the raw response from the LLM
 raw_output = completion.choices[0].message.content
 
-# Extract any <think>...</think> block and print it to stderr
-think_match = re.search(r'<think>(.*?)</think>', raw_output, flags=re.DOTALL)
-if think_match:
-    thinking_text = think_match.group(1).strip()
-    print(f"Thinking Text: {thinking_text}", file=sys.stderr)
-else:
-    # No <think> block was found – still emit a message to stderr to confirm stderr is functional
-    print("No thinking block detected.", file=sys.stderr)
+# Check for reasoning_content (some backends provide reasoning separately)
+reasoning_content = getattr(completion.choices[0].message, "reasoning_content", None)
 
-# Remove any <think>...</think> block (including the newline after </think>) from the output
-# The DOTALL flag allows '.' to match newlines so the entire block is removed
-clean_output = re.sub(r'<think>.*?</think>\s*', '', raw_output, flags=re.DOTALL).strip()
+if reasoning_content:
+    print(f"Thinking Text: {reasoning_content}", file=sys.stderr)
+    clean_output = raw_output.strip() if raw_output else ""
+else:
+    # Extract any <think>...</think> block and print it to stderr
+    think_match = re.search(r"<think>(.*?)</think>", raw_output, flags=re.DOTALL)
+    if think_match:
+        thinking_text = think_match.group(1).strip()
+        print(f"Thinking Text: {thinking_text}", file=sys.stderr)
+    else:
+        # No <think> block was found – still emit a message to stderr to confirm stderr is functional
+        print("No thinking block detected.", file=sys.stderr)
+
+    # Remove any <think>...</think> block (including the newline after </think>) from the output
+    # The DOTALL flag allows '.' to match newlines so the entire block is removed
+    clean_output = re.sub(
+        r"<think>.*?</think>\s*", "", raw_output, flags=re.DOTALL
+    ).strip()
 
 print(clean_output)
