@@ -236,14 +236,17 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
     continue
   fi
 
-  # Trim whitespace and newlines from LLM output for reliable comparison
+  # Strip markdown code blocks while preserving JSON structure for parsing
+  clean_output=$(printf '%s' "$llm_output" | sed 's/```json//Ig' | sed 's/```//g' | tr -d '\r')
   # Parse the JSON output from the LLM. Expected format: {"detected": true} or {"detected": false}
-  detected=$(echo "$llm_output" | jq -r '.detected' 2>/dev/null || echo "null")
-  # Fallback to legacy YES/NO handling if JSON parsing fails
+  detected=$(printf '%s' "$clean_output" | jq -r '.detected' 2>/dev/null || echo "")
+  # Convert to lowercase for case-insensitive comparison
+  detected=$(printf '%s' "$detected" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+  # Fallback handling if JSON parsing fails
   if [[ "$detected" != "true" && "$detected" != "false" ]]; then
-    # Strip whitespace and convert to uppercase for legacy check
-    detected=$(echo "$llm_output" | tr -d '\n\r' | xargs | tr '[:lower:]' '[:upper:]')
-    if [[ "$detected" == "YES" ]]; then
+    clean_output_lower=$(printf '%s' "$clean_output" | tr '[:upper:]' '[:lower:]')
+    # Check for JSON boolean pattern or legacy YES/NO
+    if [[ "$clean_output_lower" =~ \"detected\"[[:space:]]*:[[:space:]]*true ]] || [[ "$clean_output_lower" =~ \"detected\"[[:space:]]*:[[:space:]]*\"true\" ]] || [[ "$clean_output_lower" == *"yes"* ]]; then
       detected="true"
     else
       detected="false"
