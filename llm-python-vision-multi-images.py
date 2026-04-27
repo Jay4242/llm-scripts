@@ -10,11 +10,21 @@ import re
 
 # Point to the local server
 client = OpenAI(
-    base_url="http://localhost:9595/v1", api_key="none", timeout=httpx.Timeout(3600)
+    base_url="http://localhost:9595/v1", api_key="none", timeout=httpx.Timeout(14400)
 )
 
 # Model selection
 model = "Qwen3-VL-30B-A3B-Thinking"
+is_qwen_model = "qwen" in model.lower()
+
+QWEN_GENERAL_TASK_SETTINGS = {
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0.0,
+    "presence_penalty": 1.5,
+    "repetition_penalty": 1.0,
+}
 
 # Retrieve the prompt, temperature, and image paths from the arguments
 prompt = sys.argv[1]
@@ -84,38 +94,117 @@ for image_path in image_paths:
 
 
 # Send the messages to the LLM
-completion = client.chat.completions.create(
-    model=model,
-    messages=messages,
-    max_tokens=-1,
-    stream=False,
-    temperature=temperature,  # New: Pass temperature
-)
+request_kwargs = {
+    "model": model,
+    "messages": messages,
+    "max_tokens": -1,
+    "stream": True,
+    "temperature": temperature,
+    "thinking_budget_tokens": 10240,
+}
 
-# Print the response from the LLM
-# Get the raw response from the LLM
-raw_output = completion.choices[0].message.content
+if is_qwen_model:
+    request_kwargs.update(
+        {
+            "temperature": QWEN_GENERAL_TASK_SETTINGS["temperature"],
+            "top_p": QWEN_GENERAL_TASK_SETTINGS["top_p"],
+            "presence_penalty": QWEN_GENERAL_TASK_SETTINGS["presence_penalty"],
+            "extra_body": {
+                "top_k": QWEN_GENERAL_TASK_SETTINGS["top_k"],
+                "min_p": QWEN_GENERAL_TASK_SETTINGS["min_p"],
+                "repetition_penalty": QWEN_GENERAL_TASK_SETTINGS[
+                    "repetition_penalty"
+                ],
+            },
+        }
+    )
 
-# Check for reasoning_content (some backends provide reasoning separately)
-reasoning_content = getattr(completion.choices[0].message, "reasoning_content", None)
+completion = client.chat.completions.create(**request_kwargs)
 
-if reasoning_content:
-    print(f"Thinking Text: {reasoning_content}", file=sys.stderr)
-    clean_output = raw_output.strip() if raw_output else ""
-else:
-    # Extract any <think>...</think> block and print it to stderr
-    think_match = re.search(r"<think>(.*?)</think>", raw_output, flags=re.DOTALL)
-    if think_match:
-        thinking_text = think_match.group(1).strip()
-        print(f"Thinking Text: {thinking_text}", file=sys.stderr)
+# Stream handling:
+# - content tokens are streamed to stdout
+# - reasoning_content (if provided) is streamed to stderr
+# - <think>...</think> blocks in content are streamed to stderr and removed from stdout
+OPEN_TAG = "<think>"
+CLOSE_TAG = "</think>"
+
+raw_output_parts = []
+clean_output_parts = []
+thinking_parts = []
+pending = ""
+in_think = False
+
+
+def _emit_stdout(text: str):
+    if text:
+        clean_output_parts.append(text)
+        print(text, end="", flush=True)
+        print(text, end="", file=sys.stderr, flush=True)
+
+
+def _emit_stderr(text: str):
+    if text:
+        thinking_parts.append(text)
+        print(text, end="", file=sys.stderr, flush=True)
+
+
+for chunk in completion:
+    if not chunk.choices:
+        continue
+
+    delta = chunk.choices[0].delta
+
+    delta_reasoning = getattr(delta, "reasoning_content", None)
+    if delta_reasoning:
+        _emit_stderr(delta_reasoning)
+
+    delta_content = delta.content or ""
+    if not delta_content:
+        continue
+
+    raw_output_parts.append(delta_content)
+    pending += delta_content
+
+    while pending:
+        if in_think:
+            close_idx = pending.find(CLOSE_TAG)
+            if close_idx != -1:
+                _emit_stderr(pending[:close_idx])
+                pending = pending[close_idx + len(CLOSE_TAG) :]
+                in_think = False
+            else:
+                keep = len(CLOSE_TAG) - 1
+                if len(pending) > keep:
+                    _emit_stderr(pending[:-keep])
+                    pending = pending[-keep:]
+                else:
+                    break
+        else:
+            open_idx = pending.find(OPEN_TAG)
+            if open_idx != -1:
+                _emit_stdout(pending[:open_idx])
+                pending = pending[open_idx + len(OPEN_TAG) :]
+                in_think = True
+            else:
+                keep = len(OPEN_TAG) - 1
+                if len(pending) > keep:
+                    _emit_stdout(pending[:-keep])
+                    pending = pending[-keep:]
+                else:
+                    break
+
+# Flush any remaining buffered text at stream end
+if pending:
+    if in_think:
+        _emit_stderr(pending)
     else:
-        # No <think> block was found – still emit a message to stderr to confirm stderr is functional
-        print("No thinking block detected.", file=sys.stderr)
+        _emit_stdout(pending)
 
-    # Remove any <think>...</think> block (including the newline after </think>) from the output
-    # The DOTALL flag allows '.' to match newlines so the entire block is removed
-    clean_output = re.sub(
-        r"<think>.*?</think>\s*", "", raw_output, flags=re.DOTALL
-    ).strip()
+# Keep newline behavior clean for terminals/pipes
+if clean_output_parts and not "".join(clean_output_parts).endswith("\n"):
+    print()
+    print(file=sys.stderr)
 
-print(clean_output)
+# If neither explicit reasoning_content nor <think> output appeared, preserve prior stderr signal
+if not thinking_parts:
+    print("No thinking block detected.", file=sys.stderr)
