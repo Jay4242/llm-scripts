@@ -27,7 +27,7 @@ BASE_URL = os.getenv("BASE_URL")
 API_KEY = "None"
 ESPEAK_SPEED = 160
 YT_DLP_FORMAT = "bestaudio/best"
-MAX_LAST_PLAYED = 10  # Maximum number of songs to keep in last_played list
+MAX_LAST_PLAYED = 100  # Maximum number of songs to keep in last_played list
 MAX_RUNS = 1000 # Maximum runs before exiting.  Remove for infinite loop.
 MPV_SOCKET = "/dev/shm/mpv_socket"
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
@@ -270,6 +270,77 @@ def get_similar_tracks(artist, track):
             print(f"DEBUG: Last.fm parse exception: {e}")
         return []
 
+def get_track_genre(artist, track):
+    """Fetches the top genre tag for a track from Last.fm, falling back to artist tags."""
+    if not LASTFM_API_KEY:
+        return None
+    assert isinstance(artist, str), "Artist must be a string"
+    assert isinstance(track, str), "Track must be a string"
+
+    params = {
+        'api_key': LASTFM_API_KEY,
+        'artist': artist,
+        'track': track,
+        'format': 'json',
+        'autocorrect': 1,
+    }
+
+    try:
+        params['method'] = 'track.getInfo'
+        response = requests.get(LASTFM_BASE_URL, params=params)
+        response.raise_for_status()
+        data = response.json()
+        tags = data.get('track', {}).get('toptags', {}).get('tag', [])
+        if tags and isinstance(tags, list) and len(tags) > 0:
+            genre = tags[0].get('name', '').strip()
+            if genre:
+                if DEBUG:
+                    print(f"DEBUG: Genre from track tags: '{genre}'")
+                return genre
+
+        if DEBUG:
+            print("DEBUG: No track tags, falling back to artist tags...")
+
+        artist_params = {
+            'method': 'artist.getTopTags',
+            'api_key': LASTFM_API_KEY,
+            'artist': artist,
+            'format': 'json',
+            'autocorrect': 1,
+        }
+        response = requests.get(LASTFM_BASE_URL, params=artist_params)
+        response.raise_for_status()
+        data = response.json()
+        tags = data.get('toptags', {}).get('tag', [])
+        if tags and isinstance(tags, list) and len(tags) > 0:
+            genre = tags[0].get('name', '').strip()
+            if genre:
+                if DEBUG:
+                    print(f"DEBUG: Genre from artist tags: '{genre}'")
+                return genre
+
+        logging.warning(f"Last.fm returned no genre tags for artist='{artist}' track='{track}'")
+        return None
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Last.fm genre lookup failed: {e}")
+        return None
+    except (KeyError, ValueError, TypeError, IndexError) as e:
+        logging.error(f"Error parsing Last.fm genre response: {e}")
+        return None
+
+def get_genre_from_song(song_string):
+    """Parses a 'Song - Artist' string and returns the genre from Last.fm."""
+    if ' - ' not in song_string:
+        logging.warning(f"Cannot parse artist/track from song string: '{song_string}'")
+        return None
+
+    track, artist = song_string.split(' - ', 1)
+    genre = get_track_genre(artist.strip(), track.strip())
+    if genre:
+        print(f"Auto-detected genre from Last.fm: '{genre}' (from track '{track.strip()}' by '{artist.strip()}')")
+    return genre
+
 def get_dj_info(genre, last_played, similar_tracks=None):
     """Gets the DJ information from the LLM."""
     assert isinstance(genre, str), "Genre must be a string"
@@ -459,17 +530,25 @@ def main():
     global exiting, mpv_process, DEBUG
 
     parser = argparse.ArgumentParser(description="LLM-FM: A radio DJ powered by a language model.")
-    parser.add_argument("genre", nargs='?', default="Pop", help="The genre of music for the radio station.")
+    parser.add_argument("genre", nargs='?', default=None, help="The genre of music for the radio station. If omitted and --start-song is used, genre is auto-detected from Last.fm.")
     parser.add_argument("--debug", action="store_true", help="Print LLM prompts and API calls.")
     parser.add_argument("--lastfm", action="store_true",
                         help="Use Last.fm track.getSimilar to seed song choices. Requires LASTFM_API_KEY in .env.")
     parser.add_argument("--song-start", type=str, default=None,
-                        help="Starting song in 'Song Title - Artist' format. Enables Last.fm mode for subsequent songs.")
+                        help="Starting song in 'Song Title - Artist' format. Enables Last.fm mode and auto-detects genre from the song's Last.fm tags if no genre is given.")
     args = parser.parse_args()
     genre = args.genre
     DEBUG = args.debug
     use_lastfm = args.lastfm
     song_start = args.song_start
+
+    if genre is None and song_start:
+        genre = get_genre_from_song(song_start)
+    if genre is None:
+        genre = "Pop"
+
+    if DEBUG:
+        print(f"DEBUG: Using genre='{genre}'")
 
     try:
         lat, lon = get_location_from_zip(ZIP_CODE)
