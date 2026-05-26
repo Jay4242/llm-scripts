@@ -12,6 +12,7 @@ import pyttsx3
 import subprocess
 import re
 import argparse
+import random
 from datetime import datetime
 import logging
 import socket
@@ -277,8 +278,9 @@ def get_dj_info(genre, last_played, similar_tracks=None):
     system_prompt = f"You are a {genre} radio DJ."
 
     if similar_tracks:
+        random.shuffle(similar_tracks)
         tracks_list = "\n".join(
-            [f"{i+1}. {t['song']} (match: {t['match']:.1f})" for i, t in enumerate(similar_tracks)]
+            [f"{i+1}. {t['song']}" for i, t in enumerate(similar_tracks)]
         )
         user_prompt = (
             "Pick a song that you want to play next. You may use one of the similar songs below, "
