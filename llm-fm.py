@@ -281,8 +281,8 @@ def get_dj_info(genre, last_played, similar_tracks=None):
             [f"{i+1}. {t['song']} (match: {t['match']:.1f})" for i, t in enumerate(similar_tracks)]
         )
         user_prompt = (
-            "Pick a song that you want to play next from the following list of similar songs "
-            "and add a short description to lead into the song. "
+            "Pick a song that you want to play next. You may use one of the similar songs below, "
+            "or choose a different song if you prefer, and add a short description to lead into the song. "
             "Output this in JSON. Only include the fields for the 'song' and 'description'. Use the JSON format. "
             "The song should be in 'Song_Name - Artist' format. The current date is {}.\n".format(curdate) +
             f"You've already played these tracks (most recent first) ```{last_played}``` NEVER replay them!\n"
