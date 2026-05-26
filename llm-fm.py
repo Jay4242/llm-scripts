@@ -20,7 +20,7 @@ load_dotenv()
 
 # Configuration
 ZIP_CODE = os.getenv("ZIP_CODE")
-TEMPERATURE = 0.8
+TEMPERATURE = 1.0
 MODEL = "gemma-3-4b-it-q8_0"
 BASE_URL = os.getenv("BASE_URL")
 API_KEY = "None"
@@ -29,6 +29,9 @@ YT_DLP_FORMAT = "bestaudio/best"
 MAX_LAST_PLAYED = 10  # Maximum number of songs to keep in last_played list
 MAX_RUNS = 1000 # Maximum runs before exiting.  Remove for infinite loop.
 MPV_SOCKET = "/dev/shm/mpv_socket"
+LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
+LASTFM_BASE_URL = "http://ws.audioscrobbler.com/2.0/"
+MAX_SIMILAR_TRACKS = 10
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -40,6 +43,7 @@ engine.setProperty('rate', ESPEAK_SPEED)
 last_played = []
 exiting = False  # Global flag to prevent re-entering the signal handler
 mpv_process = None # Global variable to store the mpv process
+DEBUG = False
 
 def get_location_from_zip(zip_code):
     """Fetches latitude and longitude from a zip code using Nominatim."""
@@ -131,6 +135,11 @@ def llm_call(system_prompt, user_prompt):
     """Makes a call to the LLM and returns the response."""
     assert isinstance(system_prompt, str), "System prompt must be a string"
     assert isinstance(user_prompt, str), "User prompt must be a string"
+
+    if DEBUG:
+        print(f"\n--- LLM SYSTEM PROMPT ---\n{system_prompt}\n")
+        print(f"--- LLM USER PROMPT ---\n{user_prompt}\n")
+
     headers = {"Content-Type": "application/json"}
     data = {
         "model": MODEL,
@@ -174,7 +183,14 @@ def play_audio(song):
     global mpv_process
     assert isinstance(song, str), "Song must be a string"
     try:
-        url = subprocess.check_output(["yt-dlp", "--no-warnings", "--quiet", "-x", "-g", f"ytsearch:{song}"]).decode('utf-8').strip()
+        # Split on dash and use both parts for ytsearch to ensure both title and artist are included
+        if ' - ' in song:
+            song_title = song.split(' - ')[0].strip()
+            artist = song.split(' - ')[1].strip()
+            search_query = f"{song_title} {artist}"
+        else:
+            search_query = song
+        url = subprocess.check_output(["yt-dlp", "--no-warnings", "--quiet", "-x", "-g", f"ytsearch:{search_query}"]).decode('utf-8').strip()
         mpv_process = subprocess.Popen(
             ["mpv", "--no-video", url]
         )
@@ -187,22 +203,100 @@ def play_audio(song):
 def fix_quotes(json_string):
     """Replaces curly quotes with straight quotes in a JSON string."""
     assert isinstance(json_string, str), "JSON string must be a string"
-    json_string = json_string.replace("“", "\"")
-    json_string = json_string.replace("”", "\"")
+    json_string = json_string.replace("\u201c", "\"")
+    json_string = json_string.replace("\u201d", "\"")
     return json_string
 
-def get_dj_info(genre, last_played):
+def get_similar_tracks(artist, track):
+    """Fetches similar tracks from the Last.fm API."""
+    if not LASTFM_API_KEY:
+        if DEBUG:
+            print("DEBUG: Skipping Last.fm — LASTFM_API_KEY not set.")
+        return []
+    assert isinstance(artist, str), "Artist must be a string"
+    assert isinstance(track, str), "Track must be a string"
+
+    params = {
+        'method': 'track.getsimilar',
+        'artist': artist,
+        'track': track,
+        'api_key': LASTFM_API_KEY,
+        'format': 'json',
+        'limit': MAX_SIMILAR_TRACKS,
+        'autocorrect': 1,
+    }
+
+    if DEBUG:
+        print(f"DEBUG: Fetching similar tracks for artist='{artist}' track='{track}'")
+        print(f"DEBUG: Last.fm URL: {LASTFM_BASE_URL}?method=track.getsimilar&artist={artist}&track={track}&api_key=***&format=json&limit={MAX_SIMILAR_TRACKS}&autocorrect=1")
+
+    try:
+        response = requests.get(LASTFM_BASE_URL, params=params)
+        response.raise_for_status()
+        data = response.json()
+
+        if DEBUG:
+            if 'error' in data:
+                print(f"DEBUG: Last.fm error response: {data}")
+            elif 'similartracks' in data:
+                track_count = len(data['similartracks'].get('track', [])) if isinstance(data['similartracks'].get('track'), list) else 1
+                print(f"DEBUG: Last.fm returned {track_count} similar tracks")
+
+        if 'similartracks' not in data or 'track' not in data['similartracks']:
+            logging.warning("Last.fm returned no similar tracks.")
+            return []
+
+        raw_tracks = data['similartracks']['track']
+        if not isinstance(raw_tracks, list):
+            raw_tracks = [raw_tracks]
+
+        tracks = []
+        for t in raw_tracks:
+            tracks.append({
+                'song': f"{t['name']} - {t['artist']['name']}",
+                'match': float(t['match'])
+            })
+        return tracks
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Last.fm API request failed: {e}")
+        if DEBUG:
+            print(f"DEBUG: Last.fm request exception: {e}")
+        return []
+    except (KeyError, ValueError, TypeError) as e:
+        logging.error(f"Error parsing Last.fm response: {e}")
+        if DEBUG:
+            print(f"DEBUG: Last.fm parse exception: {e}")
+        return []
+
+def get_dj_info(genre, last_played, similar_tracks=None):
     """Gets the DJ information from the LLM."""
     assert isinstance(genre, str), "Genre must be a string"
     assert isinstance(last_played, list), "last_played must be a list"
     curdate = time.strftime("%a %b %d %Y %H:%M %p")
     system_prompt = f"You are a {genre} radio DJ."
-    user_prompt = (
-        "Pick a song that you want to play next and add a short description to lead into the song. "
-        "Output this in JSON. Only include the fields for the 'song' and 'description'. Use the JSON format. "
-        "The song should be in 'Song_Name - Artist' format. The current date is {}.".format(curdate) +
-        f"You've already played these tracks (most recent first) ```{last_played}``` NEVER replay them!"
-    )
+
+    if similar_tracks:
+        tracks_list = "\n".join(
+            [f"{i+1}. {t['song']} (match: {t['match']:.1f})" for i, t in enumerate(similar_tracks)]
+        )
+        user_prompt = (
+            "Pick a song that you want to play next from the following list of similar songs "
+            "and add a short description to lead into the song. "
+            "Output this in JSON. Only include the fields for the 'song' and 'description'. Use the JSON format. "
+            "The song should be in 'Song_Name - Artist' format. The current date is {}.\n".format(curdate) +
+            f"You've already played these tracks (most recent first) ```{last_played}``` NEVER replay them!\n"
+            f"Here are similar songs you may choose from (pick ONE):\n{tracks_list}\n"
+            "You may pick from the list or suggest a different song in 'Song_Name - Artist' format."
+        )
+    else:
+        user_prompt = (
+            "Pick a song that you want to play next and add a short description to lead into the song. "
+            "Output this in JSON. Only include the fields for the 'song' and 'description'. Use the JSON format. "
+            "The song should be in 'Song_Name - Artist' format. The current date is {}.".format(curdate) +
+            f"You've already played these tracks (most recent first) ```{last_played}``` NEVER replay them!"
+        )
+
     dj_info = llm_call(system_prompt, user_prompt)
     assert dj_info is not None, "LLM returned None"
     return dj_info
@@ -216,6 +310,13 @@ def parse_dj_info(dj_info):
         assert isinstance(dj_data, dict), "dj_data must be a dict"
         song = dj_data.get('song')
         desc = dj_data.get('description')
+        
+        # Remove asterisks from song and description
+        if song:
+            song = song.replace("*", "")
+        if desc:
+            desc = desc.replace("*", "")
+            
         return song, desc
     except (json.JSONDecodeError, TypeError) as e:
         logging.error(f"Error parsing LLM response: {e}")
@@ -225,10 +326,15 @@ def announce_song(desc, song):
     """Announces the song and description."""
     assert isinstance(desc, str) and desc, "Description must be a non-empty string"
     assert isinstance(song, str) and song, "Song must be a non-empty string"
-    print(desc)
-    speak(desc)
-    print(f"Next Up: {song}")
-    speak(f"Next Up: {song}")
+    
+    # Remove asterisks from description and song
+    desc_clean = desc.replace("*", "")
+    song_clean = song.replace("*", "")
+    
+    print(desc_clean)
+    speak(desc_clean)
+    print(f"Next Up: {song_clean}")
+    speak(f"Next Up: {song_clean}")
 
 def manage_last_played(song, last_played):
     """Manages the last played list."""
@@ -278,14 +384,41 @@ def send_mpv_command(command):
     except socket.error as e:
         logging.error(f"Could not send command to mpv: {e}")
 
-def main_loop(genre, lat, lon):
+def main_loop(genre, lat, lon, use_lastfm=False, song_start=None):
     """Main loop to run the radio DJ."""
     global last_played, exiting, mpv_process
     runs = 0
 
+    if song_start:
+        use_lastfm = True
+
     while not exiting and runs < MAX_RUNS:
         try:
-            dj_info = get_dj_info(genre, last_played)
+            if song_start and runs == 0:
+                print(f"Starting with: {song_start}")
+                mpv_process = play_audio(song_start)
+                if mpv_process:
+                    mpv_process.wait()
+                last_played = manage_last_played(song_start, last_played)
+                runs += 1
+                time.sleep(3)
+                continue
+
+            similar_tracks = []
+            if use_lastfm and last_played:
+                last_song = last_played[0]
+                if ' - ' in last_song:
+                    track, artist = last_song.split(' - ', 1)
+                    similar_tracks = get_similar_tracks(artist, track)
+                else:
+                    similar_tracks = get_similar_tracks('', last_song)
+
+            similar_tracks = [t for t in similar_tracks if t['song'] not in last_played]
+
+            if DEBUG and similar_tracks:
+                print(f"DEBUG: Passing {len(similar_tracks)} similar tracks to LLM for selection")
+
+            dj_info = get_dj_info(genre, last_played, similar_tracks if similar_tracks else None)
             song, desc = parse_dj_info(dj_info)
 
             if not song or not desc:
@@ -307,7 +440,8 @@ def main_loop(genre, lat, lon):
 
             last_played = manage_last_played(song, last_played)
 
-            if runs % 5 == 0:
+            # Check weather every 5 songs (5th, 10th, 15th, etc.)
+            if (runs + 1) % 5 == 0:
                 get_weather_and_announce(lat, lon)
 
             runs += 1
@@ -320,12 +454,20 @@ def main_loop(genre, lat, lon):
 
 def main():
     """Main function to run the radio DJ."""
-    global exiting, mpv_process
+    global exiting, mpv_process, DEBUG
 
     parser = argparse.ArgumentParser(description="LLM-FM: A radio DJ powered by a language model.")
     parser.add_argument("genre", nargs='?', default="Pop", help="The genre of music for the radio station.")
+    parser.add_argument("--debug", action="store_true", help="Print LLM prompts and API calls.")
+    parser.add_argument("--lastfm", action="store_true",
+                        help="Use Last.fm track.getSimilar to seed song choices. Requires LASTFM_API_KEY in .env.")
+    parser.add_argument("--song-start", type=str, default=None,
+                        help="Starting song in 'Song Title - Artist' format. Enables Last.fm mode for subsequent songs.")
     args = parser.parse_args()
     genre = args.genre
+    DEBUG = args.debug
+    use_lastfm = args.lastfm
+    song_start = args.song_start
 
     try:
         lat, lon = get_location_from_zip(ZIP_CODE)
@@ -349,7 +491,7 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    main_loop(genre, lat, lon)
+    main_loop(genre, lat, lon, use_lastfm, song_start)
     print("Exiting.")
 
 if __name__ == "__main__":
