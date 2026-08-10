@@ -100,7 +100,9 @@ request_kwargs = {
     "max_tokens": -1,
     "stream": True,
     "temperature": temperature,
-    "thinking_budget_tokens": 10240,
+    "extra_body": {
+        "reasoning_budget_tokens": 10240,
+    },
 }
 
 if is_qwen_model:
@@ -109,13 +111,15 @@ if is_qwen_model:
             "temperature": QWEN_GENERAL_TASK_SETTINGS["temperature"],
             "top_p": QWEN_GENERAL_TASK_SETTINGS["top_p"],
             "presence_penalty": QWEN_GENERAL_TASK_SETTINGS["presence_penalty"],
-            "extra_body": {
-                "top_k": QWEN_GENERAL_TASK_SETTINGS["top_k"],
-                "min_p": QWEN_GENERAL_TASK_SETTINGS["min_p"],
-                "repetition_penalty": QWEN_GENERAL_TASK_SETTINGS[
-                    "repetition_penalty"
-                ],
-            },
+        }
+    )
+    request_kwargs["extra_body"].update(
+        {
+            "top_k": QWEN_GENERAL_TASK_SETTINGS["top_k"],
+            "min_p": QWEN_GENERAL_TASK_SETTINGS["min_p"],
+            "repetition_penalty": QWEN_GENERAL_TASK_SETTINGS[
+                "repetition_penalty"
+            ],
         }
     )
 
