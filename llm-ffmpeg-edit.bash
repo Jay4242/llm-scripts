@@ -16,6 +16,33 @@ frame_rate=2         # Frames per second to extract
 frames_per_batch=20  # Number of frames to send to LLM per batch
 output_clip_name="clipped_video.mp4" # Default output filename for the clipped video
 full_mode=false      # New: Option to scan full video and concatenate all detections
+pause_key="p"        # Key to pause/resume between LLM backend calls
+
+# Set up pause/resume key listener via background process
+pause_flag="${temp_dir}/pause_flag"
+echo "0" > "$pause_flag"
+if [ -c /dev/tty ]; then
+  (
+    while true; do
+      read -rsn1 key < /dev/tty 2>/dev/null || exit 0
+      if [[ "$key" == "$pause_key" ]]; then
+        current=$(<"$pause_flag")
+        if [[ "$current" == "0" ]]; then
+          echo "1" > "$pause_flag"
+          printf '\n\033[33m[PAUSED]\033[0m Press "%s" to resume...\n' "$pause_key" >&2
+        else
+          echo "0" > "$pause_flag"
+          printf '\n\033[33m[RESUMING]\033[0m\n' >&2
+        fi
+      fi
+    done
+  ) &
+  pause_listener_pid=$!
+  trap 'kill $pause_listener_pid 2>/dev/null; rm -f "$pause_flag"' EXIT
+else
+  echo "Warning: No terminal available, pause key disabled." >&2
+fi
+
 # Determine appropriate temperature based on the available model
 # Query the model list from the local server
 model_list_json=$(curl -s localhost:9595/models) || {
@@ -78,6 +105,10 @@ while [[ $# -gt 0 ]]; do
       full_mode=true
       shift
       ;;
+    --pause-key)
+      pause_key="$2"
+      shift 2
+      ;;
     -l|--local-file) # New flag for local file input
       use_local_file=true
       local_file_path="$2"
@@ -94,6 +125,7 @@ while [[ $# -gt 0 ]]; do
       echo "  -fb, --frames-per-batch <num> Number of frames per batch sent to LLM (default: 20)"
       echo "  -f, --full                   Scan full video and concatenate all detections"
       echo "  -l, --local-file <path>      Use a local video file instead of downloading"
+      echo "  --pause-key <char>           Key to press for pause/resume (default: p)"
       echo "  --help                       Show this help message and exit"
       echo ""
       echo "Positional arguments:"
@@ -145,6 +177,7 @@ if ( [ -z "$video_url" ] && [ -z "$local_file_path" ] ) || [ -z "$thing_to_detec
   echo "  -fb, --frames-per-batch <num> Number of frames per batch sent to LLM (default: 20)" >&2
   echo "  -f, --full                   Scan full video and concatenate all detections" >&2
   echo "  -l, --local-file <path>      Use a local video file instead of downloading" >&2
+  echo "  --pause-key <char>           Key to press for pause/resume (default: p)" >&2
   echo "  --help                       Show this help message and exit" >&2
   echo "" >&2
   echo "Positional arguments:" >&2
@@ -224,6 +257,11 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
   cmd_args+=("${subset[@]}") # Images start at sys.argv[3]
 
   echo "  Checking frames ${start_frame}-${end_frame} (${current_batch_start_time}s-${current_batch_end_time}s)..." >&2
+
+  # Pause check: block if user has pressed the pause key
+  while [[ "$(<"$pause_flag")" == "1" ]]; do
+    sleep 0.5
+  done
 
   # Call the llm-python-vision-multi-images.py script and time it
   llm_output=$(time -p llm-python-vision-multi-images.py "${cmd_args[@]}")
