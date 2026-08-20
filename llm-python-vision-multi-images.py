@@ -10,7 +10,7 @@ import re
 
 # Point to the local server
 client = OpenAI(
-    base_url="http://localhost:9595/v1", api_key="none", timeout=httpx.Timeout(14400)
+    base_url="http://localhost:8080/v1", api_key="none", timeout=httpx.Timeout(14400)
 )
 
 # Model selection
@@ -22,7 +22,7 @@ QWEN_GENERAL_TASK_SETTINGS = {
     "top_p": 0.95,
     "top_k": 20,
     "min_p": 0.0,
-    "presence_penalty": 1.5,
+    "presence_penalty": 0.0,
     "repetition_penalty": 1.0,
 }
 
