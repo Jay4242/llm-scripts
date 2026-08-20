@@ -17,6 +17,8 @@ frames_per_batch=20  # Number of frames to send to LLM per batch
 output_clip_name="clipped_video.mp4" # Default output filename for the clipped video
 full_mode=false      # New: Option to scan full video and concatenate all detections
 pause_key="p"        # Key to pause/resume between LLM backend calls
+mpdecimate=false     # Enable ffmpeg mpdecimate to skip near-duplicate frames during extraction
+phash_threshold=0    # Perceptual hash dedup threshold (0=disabled, 1-5=aggressive, 5-10=moderate, 15+=permissive)
 
 # Set up pause/resume key listener via background process
 pause_flag="${temp_dir}/pause_flag"
@@ -45,7 +47,7 @@ fi
 
 # Determine appropriate temperature based on the available model
 # Query the model list from the local server
-model_list_json=$(curl -s localhost:9595/models) || {
+model_list_json=$(curl -s localhost:8080/models) || {
   echo "Warning: Failed to fetch model list; using default temperature." >&2
   temperature="1.0"
 }
@@ -114,6 +116,18 @@ while [[ $# -gt 0 ]]; do
       local_file_path="$2"
       shift 2
       ;;
+    --mpdecimate)
+      mpdecimate=true
+      shift
+      ;;
+    --phash-threshold)
+      phash_threshold="$2"
+      if ! [[ "$phash_threshold" =~ ^[0-9]+$ ]] || [ "$phash_threshold" -lt 0 ] || [ "$phash_threshold" -gt 64 ]; then
+        echo "Error: --phash-threshold must be an integer between 0 and 64." >&2
+        exit 1
+      fi
+      shift 2
+      ;;
     --help)
       echo "Usage: $0 [options] <video_url> <thing_to_detect>"
       echo ""
@@ -126,6 +140,9 @@ while [[ $# -gt 0 ]]; do
       echo "  -f, --full                   Scan full video and concatenate all detections"
       echo "  -l, --local-file <path>      Use a local video file instead of downloading"
       echo "  --pause-key <char>           Key to press for pause/resume (default: p)"
+      echo "  --mpdecimate                 Skip near-duplicate frames during ffmpeg extraction (no new deps)"
+      echo "  --phash-threshold <0-64>     Perceptual hash dedup filter (requires 'pip install imagehash')"
+      echo "                               (default: 0=disabled, 1-5=aggressive, 5-10=moderate, 15+=permissive)"
       echo "  --help                       Show this help message and exit"
       echo ""
       echo "Positional arguments:"
@@ -178,12 +195,28 @@ if ( [ -z "$video_url" ] && [ -z "$local_file_path" ] ) || [ -z "$thing_to_detec
   echo "  -f, --full                   Scan full video and concatenate all detections" >&2
   echo "  -l, --local-file <path>      Use a local video file instead of downloading" >&2
   echo "  --pause-key <char>           Key to press for pause/resume (default: p)" >&2
+  echo "  --mpdecimate                 Skip near-duplicate frames during ffmpeg extraction" >&2
+  echo "  --phash-threshold <0-64>     Perceptual hash dedup filter (requires 'pip install imagehash')" >&2
   echo "  --help                       Show this help message and exit" >&2
   echo "" >&2
   echo "Positional arguments:" >&2
   echo "  <video_url>                  URL of the video to process (if not using -l)" >&2
   echo "  <thing_to_detect>            Description of what to detect in the video" >&2
   exit 1
+fi
+
+# Check imagehash availability if phash filtering is enabled
+if [ "$phash_threshold" -gt 0 ]; then
+  if ! python3 -c "import imagehash" 2>/dev/null; then
+    echo "Error: --phash-threshold requires the 'imagehash' Python package." >&2
+    echo "Install it with: pip install imagehash" >&2
+    exit 1
+  fi
+  if ! python3 -c "from PIL import Image" 2>/dev/null; then
+    echo "Error: --phash-threshold requires the 'Pillow' Python package." >&2
+    echo "Install it with: pip install Pillow" >&2
+    exit 1
+  fi
 fi
 
 # Construct the cookies option for yt-dlp
@@ -217,13 +250,19 @@ else # Use yt-dlp for URL
 fi
 
 echo "Extracting frames..." >&2
-# Extract frames from the video
+# Build the ffmpeg filter chain based on options
+vf_chain="fps=${frame_rate}"
 if $scene_change; then
-  # Extract scene frames with fixed frame rate and scene detection
-  ffmpeg -i "${video}" -vf "fps=${frame_rate},select='gt(scene,${scene_threshold})'" -vsync vfr -q:v 1 "${temp_dir}/frame_%08d.jpg" 2>/dev/null
+  vf_chain+=",select='gt(scene,${scene_threshold})'"
+fi
+if $mpdecimate; then
+  vf_chain+=",mpdecimate"
+fi
+# mpdecimate requires -vsync vfr for variable-frame-rate output
+if $scene_change || $mpdecimate; then
+  ffmpeg -i "${video}" -vf "$vf_chain" -vsync vfr -q:v 1 "${temp_dir}/frame_%08d.jpg" 2>/dev/null
 else
-  # Extract frames at a fixed rate
-  ffmpeg -i "${video}" -vf "fps=${frame_rate}" -q:v 1 "${temp_dir}/frame_%08d.jpg" 2>/dev/null
+  ffmpeg -i "${video}" -vf "$vf_chain" -q:v 1 "${temp_dir}/frame_%08d.jpg" 2>/dev/null
 fi
 
 # Check if any frames were extracted
@@ -234,6 +273,46 @@ if [ "$num_images" -eq 0 ]; then
   exit 1
 fi
 
+# Phash-based perceptual deduplication (post-extraction, requires imagehash)
+if [ "$phash_threshold" -gt 0 ]; then
+  echo "Perceptual hash filtering (threshold=${phash_threshold})..." >&2
+  PHASH_THRESHOLD="$phash_threshold" TEMP_DIR="$temp_dir" python3 << 'PYEOF'
+import os, sys, glob
+from PIL import Image
+import imagehash
+
+threshold = int(os.environ['PHASH_THRESHOLD'])
+temp_dir = os.environ.get('TEMP_DIR', '/dev/shm/llm-ffmpeg-edit/')
+image_paths = sorted(glob.glob(os.path.join(temp_dir, 'frame_*.jpg')))
+
+last_hash = None
+kept = 0
+removed = 0
+for path in image_paths:
+    try:
+        h = imagehash.phash(Image.open(path))
+    except Exception as e:
+        print(f"Warning: phash failed for {path}: {e}", file=sys.stderr)
+        continue
+    if last_hash is not None and (h - last_hash) < threshold:
+        os.unlink(path)
+        removed += 1
+    else:
+        last_hash = h
+        kept += 1
+
+print(f"phash: kept {kept} frames, removed {removed} near-duplicates (threshold={threshold})", file=sys.stderr)
+PYEOF
+  # Reload image list after filtering
+  images=(${temp_dir}/frame_*.jpg)
+  num_images=${#images[@]}
+  if [ "$num_images" -eq 0 ]; then
+    echo "Error: No frames remain after phash filtering. Exiting." >&2
+    exit 1
+  fi
+  echo "  ${num_images} frames remain after phash filtering." >&2
+fi
+
 echo "Analyzing video for '${thing_to_detect}'..." >&2
 
 # Loop through the images in batches for detection
@@ -241,13 +320,16 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
   subset=("${images[@]:i:$frames_per_batch}")
   num_subset=${#subset[@]}
 
-  # Get the starting and ending frame numbers for the current batch
-  start_frame=$((i + 1))
-  end_frame=$((i + $num_subset))
+  # Extract actual frame numbers from filenames (resilient to dedup gaps)
+  first_frame_num=$(basename "${subset[0]}" | sed 's/frame_0*\([0-9][0-9]*\)\.jpg/\1/')
+  last_frame_num=$(basename "${subset[-1]}" | sed 's/frame_0*\([0-9][0-9]*\)\.jpg/\1/')
+  # Strip leading zeros for arithmetic (10# prefix)
+  first_frame_num=$((10#$first_frame_num))
+  last_frame_num=$((10#$last_frame_num))
 
   # Calculate the start and end times in seconds for the current batch (using bc for float arithmetic)
-  current_batch_start_time=$(echo "scale=3; ($start_frame - 1) / $frame_rate" | bc -l)
-  current_batch_end_time=$(echo "scale=3; $end_frame / $frame_rate" | bc -l)
+  current_batch_start_time=$(echo "scale=3; ($first_frame_num - 1) / $frame_rate" | bc -l)
+  current_batch_end_time=$(echo "scale=3; $last_frame_num / $frame_rate" | bc -l)
 
   # Construct the LLM prompt for detection. Request a JSON boolean response.
   detection_prompt="You are looking at a sequence of JPEG frames.\nThink step‑by‑step about the frames.\nAnswer with a single JSON object containing three fields: \"detected\" (true|false), \"reason\" (brief explanation), and \"frames\" (list of frame numbers where the target appears).\nDetermine if '${thing_to_detect}' appears in any frame. ONLY set \"detected\" to true if you are absolutely certain the target is visible; otherwise set it to false. Do not guess. Only output the JSON, no extra text. If the description is specific, verify that each specified detail appears exactly as given."
@@ -256,7 +338,7 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
   cmd_args=("$detection_prompt" "$temperature") # Prompt is sys.argv[1], Temperature is sys.argv[2]
   cmd_args+=("${subset[@]}") # Images start at sys.argv[3]
 
-  echo "  Checking frames ${start_frame}-${end_frame} (${current_batch_start_time}s-${current_batch_end_time}s)..." >&2
+  echo "  Checking frames ${first_frame_num}-${last_frame_num} (${current_batch_start_time}s-${current_batch_end_time}s)..." >&2
 
   # Pause check: block if user has pressed the pause key
   while [[ "$(<"$pause_flag")" == "1" ]]; do
@@ -270,7 +352,7 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
   echo "    LLM Raw Output: '$llm_output'" >&2 # Added line to print LLM output
 
   if [ $llm_exit_code -ne 0 ]; then
-    echo "  Warning: LLM script exited with error code $llm_exit_code for frames ${start_frame}-${end_frame}. Output: $llm_output. Skipping this batch." >&2
+    echo "  Warning: LLM script exited with error code $llm_exit_code for frames ${first_frame_num}-${last_frame_num}. Output: $llm_output. Skipping this batch." >&2
     continue
   fi
 
@@ -299,7 +381,7 @@ for ((i=0; i<num_images; i+=$frames_per_batch)); do
       # Start of a new continuous segment
       current_segment_start=$current_batch_start_time
       segment_in_progress=true
-      echo "  Detected '${thing_to_detect}' starting at ${current_segment_start}s (frame ${start_frame})." >&2
+      echo "  Detected '${thing_to_detect}' starting at ${current_segment_start}s (frame ${first_frame_num})." >&2
     fi
     current_segment_end=$current_batch_end_time # Extend the end time of the current segment
   else
