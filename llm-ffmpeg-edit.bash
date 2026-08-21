@@ -17,7 +17,6 @@ frames_per_batch=20  # Number of frames to send to LLM per batch
 output_clip_name="clipped_video.mp4" # Default output filename for the clipped video
 full_mode=false      # New: Option to scan full video and concatenate all detections
 pause_key="p"        # Key to pause/resume between LLM backend calls
-mpdecimate=false     # Enable ffmpeg mpdecimate to skip near-duplicate frames during extraction
 phash_threshold=0    # Perceptual hash dedup threshold (0=disabled, 1-5=aggressive, 5-10=moderate, 15+=permissive)
 
 # Set up pause/resume key listener via background process
@@ -116,10 +115,6 @@ while [[ $# -gt 0 ]]; do
       local_file_path="$2"
       shift 2
       ;;
-    --mpdecimate)
-      mpdecimate=true
-      shift
-      ;;
     --phash-threshold)
       phash_threshold="$2"
       if ! [[ "$phash_threshold" =~ ^[0-9]+$ ]] || [ "$phash_threshold" -lt 0 ] || [ "$phash_threshold" -gt 64 ]; then
@@ -140,7 +135,6 @@ while [[ $# -gt 0 ]]; do
       echo "  -f, --full                   Scan full video and concatenate all detections"
       echo "  -l, --local-file <path>      Use a local video file instead of downloading"
       echo "  --pause-key <char>           Key to press for pause/resume (default: p)"
-      echo "  --mpdecimate                 Skip near-duplicate frames during ffmpeg extraction (no new deps)"
       echo "  --phash-threshold <0-64>     Perceptual hash dedup filter (requires 'pip install imagehash')"
       echo "                               (default: 0=disabled, 1-5=aggressive, 5-10=moderate, 15+=permissive)"
       echo "  --help                       Show this help message and exit"
@@ -195,7 +189,6 @@ if ( [ -z "$video_url" ] && [ -z "$local_file_path" ] ) || [ -z "$thing_to_detec
   echo "  -f, --full                   Scan full video and concatenate all detections" >&2
   echo "  -l, --local-file <path>      Use a local video file instead of downloading" >&2
   echo "  --pause-key <char>           Key to press for pause/resume (default: p)" >&2
-  echo "  --mpdecimate                 Skip near-duplicate frames during ffmpeg extraction" >&2
   echo "  --phash-threshold <0-64>     Perceptual hash dedup filter (requires 'pip install imagehash')" >&2
   echo "  --help                       Show this help message and exit" >&2
   echo "" >&2
@@ -255,11 +248,7 @@ vf_chain="fps=${frame_rate}"
 if $scene_change; then
   vf_chain+=",select='gt(scene,${scene_threshold})'"
 fi
-if $mpdecimate; then
-  vf_chain+=",mpdecimate"
-fi
-# mpdecimate requires -vsync vfr for variable-frame-rate output
-if $scene_change || $mpdecimate; then
+if $scene_change; then
   ffmpeg -i "${video}" -vf "$vf_chain" -vsync vfr -q:v 1 "${temp_dir}/frame_%08d.jpg" 2>/dev/null
 else
   ffmpeg -i "${video}" -vf "$vf_chain" -q:v 1 "${temp_dir}/frame_%08d.jpg" 2>/dev/null
